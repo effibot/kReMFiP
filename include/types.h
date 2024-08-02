@@ -2,23 +2,24 @@
 #define TYPES_H
 
 
-#include <sys/types.h> // for mode_t
-
+#include <linux/types.h> // for mode_t
+#include <linux/fs.h> // for struct file
+#include <linux/fcntl.h> // for O_RDONLY
+// Your existing code
 // We need to define the function to bee hooked by the reference monitor
 
-// check which kernel version you are using and change the function name accordingly
-
-#include <linux/version.h>
-//#if LINUX_VERSION_CODE >= KERNEL_VERSION
-
+// TODO: check which kernel version you are using and change the function name accordingly
+// using #include <linux/version.h> and #if LINUX_VERSION_CODE >= KERNEL_VERSION(?, 0, 0)
+static const char *hooked_functions[] = {"vfs_open"};
 
 /*
- * Since we want to block every mode but the read-only one, we just define a whitelist of modes that are allowed.
+ * Since we want to block every mode but the read-only one,
+ * we just define an allowed list of modes that are allowed.
  */
 
-static const mode_t* wl_mode_t = O_RDONLY;
+static const int* al_mode_t = O_RDONLY;
 
-// The actual list of blacklisted modes could be something like this:
+// The actual list of blocked modes could be something like this:
 /* static const mode_t* bl_mode_t = {
         O_WRONLY, // Write-only
         O_RDWR, // Read-write
@@ -43,10 +44,26 @@ static const mode_t* wl_mode_t = O_RDONLY;
    } */
 
 
-typedef struct _rm_struct_t {
+// Define a structure to represent the protected paths
+typedef struct _path_t {
+        char *path; // Path to be protected
+
+} path_t;
+
+// Define the reference monitor structure
+typedef struct _rm_t {
 	//TODO: list of protected paths
-	// blacklisted modes
-	mode_t *mode;
-} rm_struct_t;
+	const int *blocked_modes;          // List of blacklisted modes - not used
+	const int *allowed_modes;          // List of whitelisted modes
+	const char **hooked_functions;        // List of hooked functions
+
+} rm_t;
+
+// Define a list of reference monitor structures
+typedef struct _rm_lst_t {
+	const rm_t *head;
+	rm_t *next;
+} rm_lst_t;
+
 
 #endif

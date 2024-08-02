@@ -27,3 +27,8 @@ In addition to the above specifics, the project should also include the realizat
 </ul>
 		
 The the computation of the cryptographic hash and the writing of the above tuple should be carried in deferred work.
+
+
+
+> REFS:
+[Linux Kernel Doc](https://www.kernel.org/doc/html/latest/index.html)

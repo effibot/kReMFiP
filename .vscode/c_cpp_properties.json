@@ -2,20 +2,14 @@
   "configurations": [
     {
       "name": "linux-gcc-x64",
-      "includePath": [
-        "${workspaceFolder}/**",
-        "/usr/src/linux/include/",
-        "/usr/src/linux/arch/x86/include/",
-        "/usr/src/linux/include/asm-generic/",
-        "/usr/src/linux/"
-      ],
-      "compilerPath": "/usr/bin/gcc",
       "cStandard": "${default}",
-      "cppStandard": "${default}",
       "intelliSenseMode": "linux-gcc-x64",
-      "compilerArgs": [
-        ""
-      ]
+      "compileCommands": "${workspaceFolder}/compile_commands.json",
+      "includePath": [
+        "${workspaceFolder}/**"
+      ],
+      "cppStandard": "${default}",
+      "compilerPath": "/usr/bin/gcc"
     }
   ],
   "version": 4

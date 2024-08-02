@@ -9,39 +9,21 @@
  *
  */
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <unistd.h>
+ #define EXPORT_SYMTAB
 
-# include "include/rm_state.h"
-// just to test stuffs because don't programming in C for a while
-typedef struct _rm_t {
-	state status;
-} rm_t;
 
-rm_t *rm_init() {
-	rm_t *X = malloc(sizeof(rm_t));
-	if (X == NULL) {
-		perror("malloc");
-		return NULL;
-	}
-	X->status = OFF;
-	return X;
-}
+#include <linux/module.h>
+#include "include/rm_state.h"
+#include "include/types.h"
+#include "include/utils.h"
+
+MODULE_LICENSE("GPL");
+MODULE_AUTHOR("Andrea Efficace");
+
+#define MODNAME "kremfip"
+
 
 int main(int argc, char *argv[]) {
-	if (argc < 2) {
-		printf("Usage: %s <command>\n", argv[0]);
-		return 1;
-	}
-	rm_t *X = rm_init();
 
-	if (X == NULL) {
-		perror("malloc");
-		return 1;
-	}
-	//X->status = OFF;
-	printf("Status: %d\n", X->status);
 	return 0;
 }

@@ -34,7 +34,7 @@ OPTFLAGS=$(OPTFLAGS_DEBUG)
 endif
 
 # Compiler Flags
-CFLAGS=-Wall -Wextra -Werror -$(OPTFLAGS) $(INCLUDES)
+CFLAGS=-Wall -Wextra -Werror $(INCLUDES)
 LDFLAGS=-L$(PWD)/../include
 
 # make command invoked from the command line.
@@ -66,7 +66,7 @@ unload:
 	sudo rmmod $(MODNAME).ko
 else
 # make command invoked from the kernel build system.
-obj-m += $(MODNAME).o
+obj-m += $(MODNAME)_main.o
 ifeq ($(DEBUG), 1)
 ccflags-y += -DDEBUG
 endif
