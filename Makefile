@@ -13,14 +13,16 @@ VERSION=0.1
 # Compiler
 CC=gcc
 
-# Kernel Module Directory
-KDIR := /lib/modules/$(shell uname -r)/build
 
 # Current Directory
 PWD := $(shell pwd)
 
 # External libraries to link
-INCLUDES=-I$(PWD)/../include
+IDIR=$(PWD)/../include
+INCLUDES=-I$(IDIR)
+
+# Kernel Module Directory
+KDIR := /lib/modules/$(shell uname -r)/build
 
 # Optimization Flags
 OPTFLAGS_DEFAULT=-O3
@@ -66,7 +68,8 @@ unload:
 	sudo rmmod $(MODNAME).ko
 else
 # make command invoked from the kernel build system.
-obj-m += $(MODNAME)_main.o
+obj-m += $(MODNAME).o
+$(MODNAME)-y := kremfip_main.o include/rmfs.o
 ifeq ($(DEBUG), 1)
 ccflags-y += -DDEBUG
 endif

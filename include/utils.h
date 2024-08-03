@@ -27,12 +27,17 @@
 
 
 
+
+
+
+
 // Initialize a reference monitor structure
 
-static rm_t *rm_init(void);
+static rmfs_t *rm_init(void);
 
 
 // Free a reference monitor structure
-static int rm_free(rm_t *rm);
+static int rm_free(rmfs_t *rm);
+
 
 #endif

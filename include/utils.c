@@ -33,5 +33,6 @@ static rm_t *rm_init(void){
 }
 
 static int rm_free(rm_t *rm){
-    return kfree(rm);
+	return kfree(rm);
 }
+

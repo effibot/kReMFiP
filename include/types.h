@@ -5,13 +5,15 @@
 #include <linux/types.h> // for mode_t
 #include <linux/fs.h> // for struct file
 #include <linux/fcntl.h> // for O_RDONLY
+#include <linux/list.h> // for list_head - we want list_for_each macro
+#include <linux/kobject.h> // for struct kobject
+#include "rm_state.h" // for state_t
 // Your existing code
 // We need to define the function to bee hooked by the reference monitor
 
 // TODO: check which kernel version you are using and change the function name accordingly
 // using #include <linux/version.h> and #if LINUX_VERSION_CODE >= KERNEL_VERSION(?, 0, 0)
-static const char *hooked_functions[] = {"vfs_open"};
-
+#define HOOKS {"vfs_open"}
 /*
  * Since we want to block every mode but the read-only one,
  * we just define an allowed list of modes that are allowed.
@@ -44,26 +46,72 @@ static const int* al_mode_t = O_RDONLY;
    } */
 
 
+
+/*
+ * Just for reference: kobject structure
+ * struct kobject {
+ *	const char		*name;
+ * 	struct list_head	entry;
+ * 	struct kobject		*parent;
+ * 	struct kset		*kset;
+ * 	const struct kobj_type	*ktype;
+ * 	struct kernfs_node	*sd; // sysfs directory entry
+ * 	struct kref		kref;
+ *
+ * 	unsigned int state_initialized:1;
+ * 	unsigned int state_in_sysfs:1;
+ * 	unsigned int state_add_uevent_sent:1;
+ * 	unsigned int state_remove_uevent_sent:1;
+ * 	unsigned int uevent_suppress:1;
+ *
+ * #ifdef CONFIG_DEBUG_KOBJECT_RELEASE
+ * 	struct delayed_work	release;
+ * #endif
+ * };
+ */
+
 // Define a structure to represent the protected paths
 typedef struct _path_t {
-        char *path; // Path to be protected
+	struct kobject *kobj;
+	//TODO: add attributes to implement RCU-like behavior
+	struct inode *inode;
+	struct dentry *dentry;
 
 } path_t;
 
+// Define a kobj_type for our use-case
+typedef struct _path_kobj_type_t {
+	struct kobj_type ktype;
+} path_type_t;
+
+// Define the related sysfs operations
+typedef struct _path_ops_t {
+	struct sysfs_ops ops;
+} path_ops_t;
+
+// Define attributes for the protected paths
+typedef struct _path_attr_t {
+	struct attribute attr;
+	struct path_ops_t *ops;
+} path_attr_t;
+
+// Define a list of protected paths
+typedef struct _path_lst_t {
+	struct kset *kset;
+} path_lst_t;
+
+
 // Define the reference monitor structure
 typedef struct _rm_t {
+	const char *name;                 // Name of the reference monitor
+	state_t state;                    // State of the reference monitor
 	//TODO: list of protected paths
 	const int *blocked_modes;          // List of blacklisted modes - not used
 	const int *allowed_modes;          // List of whitelisted modes
-	const char **hooked_functions;        // List of hooked functions
+	const char *hooked_functions;        // List of hooked functions
+	struct kobject kobj;              // kobject for the reference monitor
 
-} rm_t;
-
-// Define a list of reference monitor structures
-typedef struct _rm_lst_t {
-	const rm_t *head;
-	rm_t *next;
-} rm_lst_t;
+} rmfs_t;
 
 
 #endif

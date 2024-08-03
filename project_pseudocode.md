@@ -33,6 +33,9 @@ Possible steps for reconfiguration:
     - If password is *correct*, sets effective-user-id to root.
     - If password is *incorrect*, returns an error.
 3. (Assuming root) Adds or removes paths to be protected. -> RCU_linked-list to keep paths? Maybe kSet?
+> adding a path to sysfs could allow us to use the sysfs API to add/remove paths to be protected.
+> Also, with some lookup functions, we could check if a path is already in the list of protected paths.
+
 
 > VFS or custom API for adding/removing paths?
 

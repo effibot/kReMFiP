@@ -14,30 +14,30 @@
 #define RM_STATE_H
 #include <linux/types.h>
 
-typedef enum _rm_state {
+typedef enum _rm_state_t {
 	ON = 0,
 	OFF = 1,
 	REC_ON = 2,
 	REC_OFF = 3
-} state;
+} state_t;
 
 
-inline int rm_state_to_int(state s) {
+inline int rm_state_to_int(state_t s) {
 	return (int)s;
 }
 
-inline state rm_int_to_state(int i) {
-	return (state)i;
+inline state_t rm_int_to_state(int i) {
+	return (state_t)i;
 }
 
-inline bool are_ops_on(state s) {
+inline bool are_ops_on(state_t s) {
 	if (s == ON || s == REC_ON) {
 		return true;
 	}
 	return false;
 }
 
-inline bool is_reconfig(state s) {
+inline bool is_reconfig(state_t s) {
 	if (s == REC_ON || s == REC_OFF) {
 		return true;
 	}
