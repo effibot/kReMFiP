@@ -101,17 +101,7 @@ typedef struct _path_lst_t {
 } path_lst_t;
 
 
-// Define the reference monitor structure
-typedef struct _rm_t {
-	const char *name;                 // Name of the reference monitor
-	state_t state;                    // State of the reference monitor
-	//TODO: list of protected paths
-	const int *blocked_modes;          // List of blacklisted modes - not used
-	const int *allowed_modes;          // List of whitelisted modes
-	const char *hooked_functions;        // List of hooked functions
-	struct kobject kobj;              // kobject for the reference monitor
 
-} rmfs_t;
 
 
 #endif

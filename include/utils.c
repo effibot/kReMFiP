@@ -24,15 +24,4 @@
 #include "types.h"
 #include "utils.h"
 
-static rm_t *rm_init(void){
-	rm_t *rm = (rm_t *) kmalloc(sizeof(rm_t), GFP_KERNEL);
-	rm->allowed_modes = al_mode_t;
-	rm->blocked_modes = 0;
-	rm->hooked_functions = hooked_functions;
-	return rm;
-}
-
-static int rm_free(rm_t *rm){
-	return kfree(rm);
-}
 
