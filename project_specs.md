@@ -32,3 +32,17 @@ The the computation of the cryptographic hash and the writing of the above tuple
 
 > REFS:
 [Linux Kernel Doc](https://www.kernel.org/doc/html/latest/index.html)
+
+
+# Project ideas
+L'idea fondamentale e' quella di usare i kernel object per gestire in modo uniforme tutte le directory e/o i file da proteggere. Si parte dal creare un kobject sotto `/sys`, tipo `/sys/rmfs` (*reference monitor file system*) che contiene un file di stato `state`. Tramite `show/store_state()` gestisco lo stato del reference monitor.
+
+Sono indeciso su come gestire le operazioni su file e directory. 
+- Un opzione potrebbe essere quella di mantenere un secondo file sotto `/sys/rmfs/` file dove in ogni riga mantengo i full-path da proteggere. Leggendo il file posso capire se un path e' protetto o meno.
+- Un'altra opzione e' quella di separare in una struttura ad albero i vari percorsi. Quindi mantenere una directory sotto `/sys/rmfs`, tipo `/sys/rmfs/paths` e creare a catena directory e/o file per mimare la struttura del file system reale. In questo modo, posso controllare se un path e' protetto o meno semplicemente controllando se esiste o meno il path sotto `/sys/rmfs/paths/`.
+
+In entrambi i casi pensavo di implementare delle kprobe per intercettare le operazioni di open (in particolare `vfs_open()` visto che e' l'ultima chiamata fatta dal kernel prima di invocare le effettive driver-specific operations) per controllare se il path e' protetto prima dell'apertura effettiva e in caso bloccare l'operazione. Questo perche' le operazioni di show e store dei singoli kobject non penso che si riflettano in modo diretto sulle operazioni di open degli oggetti da proteggere. 
+
+> Non so se mi sono spiegato. Quello che intendo e' che se faccio una `open()` su un file (es. `/home/user/file.txt`) il kernel non invoca operazioni di show/store sui kobject relativi a `/sys/rmfs/paths/home/user/file.txt`. Quindi devo intercettare l'operazione di open per controllare se il path e' protetto o meno: sostanzialmente forzo il kernel a invocare le show prima di fare effettivamente l'open.
+
+Per la parte di logging in deferred work non ci ho ancora pensato ma non credo che sia niente di difficile e penso che sia sufficiente usare una `workqueue` per fare il logging, magari gestendo il file tramite RCU per evitare di overlappare le operazioni di scrittura.

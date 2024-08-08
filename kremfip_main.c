@@ -9,50 +9,39 @@
  *
  */
 
+#ifndef MODNAME
+#define MODNAME "kremfip_module"
+#endif
+
 #define EXPORT_SYMTAB
 
 #include <linux/module.h>
 #include <linux/kernel.h>
 #include <linux/init.h>
-#include <linux/version.h>
 #include <linux/types.h>
 #include <linux/fs.h>
-#include <linux/fcntl.h>
-#include <linux/kobject.h>
-#include <linux/slab.h>
-#include <linux/uaccess.h>
-#include <linux/string.h>
 #include <linux/list.h>
-#include <linux/kobject.h>
 #include "include/rmfs.h"
+#include "include/utils.h"
 
-#ifndef RM_INIT_STATE
-#define RM_INIT_STATE OFF
-#endif
-
-
-#define state_ops(rmfs) rmfs->kobj.ktype->sysfs_ops
-#define show_op(rmfs) state_ops(rmfs)->show
-
-static rmfs_t *rmfs;
+rmfs_t rmfs, *rmfs_ptr;
 
 static int __init kremfip_init(void) {
-    rmfs = rm_init();
-    if (unlikely(rmfs == NULL)) {
+    rmfs_ptr = kzalloc(sizeof(rmfs_t), GFP_KERNEL);
+    rmfs = *rmfs_ptr;
+    printk(KERN_INFO "%p\n", &rmfs);
+    if (rm_init(&rmfs) == -ENOMEM) {
         printk(KERN_ERR "Failed to initialize the reference monitor\n");
         return -ENOMEM;
     }
     printk(KERN_INFO "kReMFiP module loaded\n");
-
-    rmfs->state = RM_INIT_STATE;
-    // TODO: find a way to set the state of the reference monitor at startup
-
-
+    rm_display(&rmfs);
     return 0;
 }
 
 static void __exit kremfip_exit(void) {
-    rm_free(rmfs);
+    LOG_MSG("Unloading the kReMFiP module", "");
+    rm_free(&rmfs);
     printk(KERN_INFO "kReMFiP module unloaded\n");
 }
 
