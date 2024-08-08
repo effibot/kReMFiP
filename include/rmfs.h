@@ -27,7 +27,7 @@ typedef struct _rm_t {
 }__randomize_layout rmfs_t;
 
 // Define function prototypes
-int rm_init(rmfs_t *rm);
+rmfs_t* rm_init(void);
 int rm_free(rmfs_t *rm);
 int set_state(rmfs_t *rm, rm_state_t state);
 rm_state_t get_state(void);
@@ -39,5 +39,7 @@ void rm_display(rmfs_t *rm);
 #define RMFS_INIT_STATE OFF
 #define RMFS_STATE_FILE_SIZE 2
 #define RMFS_DEFAULT_NAME "kremfip"
+
+
 
 #endif //RMFS_H

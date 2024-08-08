@@ -1,7 +1,7 @@
 
 /**
  * @file rmfs.c
- * @author your name (you@domain.com)
+ * @author Andrea Efficace (andrea.efficace1@gmail.com)
  * @brief Implementation of the reference monitor as a folder under /sys/kernel
  * We provide show/store operations and initialization functions for the reference monitor structure
  * @version 0.1
@@ -17,14 +17,12 @@
 #include <linux/init.h>
 #include <linux/fs.h>
 #include <linux/slab.h>
-#include <linux/uaccess.h>
 #include <linux/string.h>
 #include <linux/types.h>
 #include <linux/list.h>
 #include <linux/kobject.h>
 #include "rmfs.h"
 #include "utils.h"
-
 
 
 // functions prototypes
@@ -39,18 +37,20 @@ static ssize_t state_store(struct kobject *kobj, struct kobj_attribute *attr,
 
 // define sysfs operations
 static ssize_t state_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf){
-	rmfs_t *rmfs = to_rmfs_t(kobj);
-	RM_LOG_MSG(rmfs, "read op invoked");
-	printk(KERN_INFO "state is %d\n", rmfs->state);
-	int count = sysfs_emit(buf, "%d\n", rmfs->state);
-	LOG_MSG("buffer content is", buf);
-	RM_LOG_MSG(rmfs, "read op success");
+	rmfs_t *rmfs_ptr = to_rmfs_t(kobj);
+	rm_display(rmfs_ptr);
+	RM_LOG_MSG(rmfs_ptr, "read op invoked");
+	printk(KERN_INFO "state is %d\n", rmfs_ptr->state);
+	int count = sysfs_emit(buf, "%d\n", rmfs_ptr->state);
+	RM_LOG_MSG(rmfs_ptr, "read op success");
 	return count;
 }
 
 static ssize_t state_store(struct kobject *kobj, struct kobj_attribute *attr, const char *buf, size_t count){
-	rmfs_t *rmfs = to_rmfs_t(kobj);
-	RM_LOG_MSG(rmfs, "store op invoked");
+	rmfs_t *rmfs_ptr = to_rmfs_t(kobj);
+	printk(KERN_INFO "%p\n", rmfs_ptr);
+	rm_display(rmfs_ptr);
+	RM_LOG_MSG(rmfs_ptr, "store op invoked");
 	//LOG_MSG("Attempting to write state", buf);
 	int new_state;
 	// should check if the new state is valid and if ops invoked as root
@@ -59,14 +59,14 @@ static ssize_t state_store(struct kobject *kobj, struct kobj_attribute *attr, co
 		LOG_MSG("write error", "kstrtoint failed");
 		return -EINVAL;
 	}
-	rmfs->state = new_state;
-	RM_LOG_MSG(rmfs, "store op success");
+	rmfs_ptr->state = new_state;
+	RM_LOG_MSG(rmfs_ptr, "store op success");
 	return count;
 }
 
 static void rm_release(struct kobject *kobj){
-	rmfs_t *rmfs = to_rmfs_t(kobj);
-	kobject_put(&rmfs->kobj);
+	rmfs_t *rmfs_ptr = to_rmfs_t(kobj);
+	kobject_put(&rmfs_ptr->kobj);
 }
 
 
@@ -76,6 +76,11 @@ int set_state(rmfs_t *rm, rm_state_t state) {
 		LOG_MSG("Trying to set an invalid state", "state");
 		return -EINVAL;
 	}
+	int len = sizeof(snprintf(NULL, 0,"Setting state to %s", get_state_str(state)))+1;
+	char* msg = kzalloc(sizeof(char)*len, GFP_KERNEL);
+	sprintf(msg, "Setting state to %s", get_state_str(state));
+	rm_display(rm);
+	RM_LOG_MSG(rm, get_state_str(state));
 	// set the state
 	rm->state = state;
 	// perform write to the state file
@@ -127,11 +132,10 @@ static struct attribute_group rmfs_groups = {
 
 // Define the reference monitor instance
 
-int rm_init(rmfs_t *rmfs_ptr){
+rmfs_t* rm_init(void){
 	//rmfs_t *rmfs_ptr = *rmfs_addr;
 	// check if rmfs is a valid pointer
-	//rmfs_ptr = kzalloc(sizeof(rmfs_t), GFP_KERNEL);
-	printk(KERN_INFO "%p\n", rmfs_ptr);
+	rmfs_t *rmfs_ptr = kzalloc(sizeof(rmfs_ptr), GFP_KERNEL_ACCOUNT);
 	mem_check(rmfs_ptr);
 	// initialize the reference monitor
 	rmfs_ptr->name = RMFS_DEFAULT_NAME;
@@ -140,8 +144,6 @@ int rm_init(rmfs_t *rmfs_ptr){
 	rmfs_ptr->allowed_modes = NULL;
 	rmfs_ptr->hooked_functions = NULL;
 	rmfs_ptr->id = rnd_id();
-
-	printk(KERN_INFO "%d\n", rmfs_ptr->id);
 	// create kobject inside /sys
 	rmfs_ptr->kobj = *kobject_create_and_add(rmfs_ptr->name, NULL);
 	// initialize the kobject with the attribute group
@@ -151,12 +153,11 @@ int rm_init(rmfs_t *rmfs_ptr){
 	// initialize the /sys/kremfip/state file
 	set_state(rmfs_ptr, RMFS_INIT_STATE);
 	RM_LOG_MSG(rmfs_ptr, "init success");
-	rm_display(rmfs_ptr);
-	return 0;
+	return rmfs_ptr;
 
 free:
 	rm_free(rmfs_ptr);
-	return -ENOMEM;
+	return NULL;
 }
 
 // Free the reference monitor instance
@@ -174,15 +175,15 @@ int rm_free(rmfs_t *rmfs){
 }
 
 
-void rm_display(rmfs_t *rm){
+void rm_display(rmfs_t *rmfs_ptr){
 	int len = sizeof(snprintf(NULL, 0,
 		"Reference Monitor %s(%d)\n State: %d\n",
-		rm->name, rm->id, rm->state
+		rmfs_ptr->name, rmfs_ptr->id, rmfs_ptr->state
 	))+1;
 	char *disp_msg = kzalloc(sizeof(char)*len, GFP_KERNEL);
 	sprintf(disp_msg,
 		"Reference Monitor %s(%d) State: %d\n",
-		rm->name, rm->id, rm->state
+		rmfs_ptr->name, rmfs_ptr->id, rmfs_ptr->state
 	);
 	printk(KERN_INFO "%s\n", disp_msg);
 
