@@ -14,7 +14,18 @@
 // Some useful debug macros
 
 #define LOG_MSG(log_msg, msg) printk(KERN_INFO "[%s::%s::%s]: %s %s\n", MODNAME, __FILE__, __func__, log_msg, msg);
-#define RM_LOG_MSG(rm, msg) printk(KERN_INFO "[%s::monitor_%d::%s]: %s\n", MODNAME, rm->id, __func__, msg);
+#define RM_LOG_STR(rm, msg, ...) \
+    do { \
+        if (sizeof((char *[]){__VA_ARGS__}) / sizeof(char *) > 0) { \
+            char full_msg[256]; \
+            snprintf(full_msg, sizeof(full_msg), msg, ##__VA_ARGS__); \
+            printk(KERN_INFO "[%s::monitor_%d::%s]: %s\n", MODNAME, rm->id, __func__, full_msg); \
+        } else { \
+            printk(KERN_INFO "[%s::monitor_%d::%s]: %s\n", MODNAME, rm->id, __func__, msg); \
+        } \
+    } while (0)
+
+
 #define mem_check(ptr) \
     if (unlikely(ptr == NULL)) { \
         LOG_MSG("Memory allocation error", "kzalloc failed"); \
@@ -28,8 +39,9 @@
 	}
 
 // Function prototypes
-int rnd_id(void);
+const int rnd_id(void);
 char *get_state_str(rm_state_t state);
+rm_state_t get_state_from_str(const char *state_str);
 bool is_state_valid(rm_state_t state);
 #endif //UTILS_H
 

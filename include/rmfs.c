@@ -24,158 +24,176 @@
 #include "rmfs.h"
 #include "utils.h"
 
-
-// functions prototypes
-static ssize_t state_show(struct kobject *kobj,
-                          struct kobj_attribute *attr, char *buf);
-static ssize_t state_store(struct kobject *kobj, struct kobj_attribute *attr,
-                           const char *buf, size_t count);
-
-// Macro to get a pointer to the reference monitor structure from the kobject
-#define to_rmfs_t(obj) container_of(obj, rmfs_t, kobj)
+#define DEBUG 1
 
 
-// define sysfs operations
-static ssize_t state_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf){
-	rmfs_t *rmfs_ptr = to_rmfs_t(kobj);
-	rm_display(rmfs_ptr);
-	RM_LOG_MSG(rmfs_ptr, "read op invoked");
-	printk(KERN_INFO "state is %d\n", rmfs_ptr->state);
-	int count = sysfs_emit(buf, "%d\n", rmfs_ptr->state);
-	RM_LOG_MSG(rmfs_ptr, "read op success");
-	return count;
+/*
+ * Define the default operations for the sysfs. These will be used by sysfs for
+ * whenever a read/write operation is performed on the file under the reference monitor.
+ * After the initialization, we must redirect the default operation to the specific
+ * for the requested attribute.
+ */
+
+static ssize_t rm_attr_show(struct kobject *kobj, struct attribute *attr, char *buf){
+	// retrieve istances of the attribute and the reference monitor
+	rm_attr_t *rm_attr = to_rm_attr(attr);
+	rmfs_t *rmfs = to_rfmfs_obj(kobj);
+#ifdef DEBUG
+	RM_LOG_STR(rmfs, "Show Op invoked for attr ", rm_attr->attr.name);
+#endif
+	// check if the show operation is implemented
+	if (!rm_attr->show){
+		LOG_MSG("Show operation not implemented for attribute", rm_attr->attr.name);
+		return -EIO;
+	}
+	// invoke the actual show operation
+	return rm_attr->show(rmfs, rm_attr, buf);
 }
 
-static ssize_t state_store(struct kobject *kobj, struct kobj_attribute *attr, const char *buf, size_t count){
-	rmfs_t *rmfs_ptr = to_rmfs_t(kobj);
-	printk(KERN_INFO "%p\n", rmfs_ptr);
-	rm_display(rmfs_ptr);
-	RM_LOG_MSG(rmfs_ptr, "store op invoked");
-	//LOG_MSG("Attempting to write state", buf);
-	int new_state;
-	// should check if the new state is valid and if ops invoked as root
-	// change datastructure state
-	if (kstrtoint(buf, 10, &new_state)){
-		LOG_MSG("write error", "kstrtoint failed");
-		return -EINVAL;
+static ssize_t rm_attr_store(struct kobject *kobj, struct attribute *attr, const char *buf, size_t count) {
+	// retrieve instances of the attribute and the reference monitor
+	rm_attr_t *rm_attr = to_rm_attr(attr);
+	rmfs_t *rmfs = to_rfmfs_obj(kobj);
+#ifdef DEBUG
+	RM_LOG_STR(rmfs, "Store Op invoked for attr ", rm_attr->attr.name);
+#endif
+	// check if the store operation is implemented
+	if (!rm_attr->store){
+		LOG_MSG("Store operation not implemented for attribute", rm_attr->attr.name);
+		return -EIO;
 	}
-	rmfs_ptr->state = new_state;
-	RM_LOG_MSG(rmfs_ptr, "store op success");
-	return count;
+	// invoke the actual store operation
+	return rm_attr->store(rmfs, rm_attr, buf, count);
 }
 
 static void rm_release(struct kobject *kobj){
-	rmfs_t *rmfs_ptr = to_rmfs_t(kobj);
-	kobject_put(&rmfs_ptr->kobj);
+	// retrieve the reference monitor instance
+	rmfs_t *rmfs = to_rfmfs_obj(kobj);
+#ifdef DEBUG
+	RM_LOG_STR(rmfs, "Releasing kobject");
+#endif
+	kfree(rmfs);
 }
 
+static const struct sysfs_ops rm_sysfs_ops = {
+	.show = rm_attr_show,
+	.store = rm_attr_store,
+};
 
-int set_state(rmfs_t *rm, rm_state_t state) {
-	// check if the state is valid
-	if (!is_state_valid(state)) {
-		LOG_MSG("Trying to set an invalid state", "state");
-		return -EINVAL;
-	}
-	int len = sizeof(snprintf(NULL, 0,"Setting state to %s", get_state_str(state)))+1;
-	char* msg = kzalloc(sizeof(char)*len, GFP_KERNEL);
-	sprintf(msg, "Setting state to %s", get_state_str(state));
-	rm_display(rm);
-	RM_LOG_MSG(rm, get_state_str(state));
-	// set the state
-	rm->state = state;
-	// perform write to the state file
-	struct file *state_file = filp_open(RMFS_STATE_FILE, O_WRONLY|O_TRUNC, 0);
-	file_open_check(state_file, RMFS_STATE_FILE);
-	static char state_buf[2];
-	if(snprintf(state_buf, 2, "%d", rm->state) < 0) {
-		printk(KERN_ERR "Failed to convert the state to a string\n");
-		return -EINVAL;
-	}
-	// write the state to the file
-	kernel_write(state_file, state_buf, 2, &state_file->f_pos);
-	filp_close(state_file, NULL);
-	return 0;
+
+// define state operations
+static ssize_t state_show(rmfs_t *rmfs, rm_attr_t *attr, char *buf){
+#ifdef DEBUG
+	RM_LOG_STR(rmfs, "reading state file");
+	rm_display(rmfs);
+#endif
+	// read the state from the reference monitor
+	return sysfs_emit(buf, "%d\n", rmfs->state);
 }
 
+static ssize_t state_store(rmfs_t *rmfs, rm_attr_t *attr, const char *buf, size_t count){
 
-
-rm_state_t get_state(void) {
-	// open the state file
-	struct file *state_file = filp_open(RMFS_STATE_FILE, O_RDONLY, 0);
-	file_open_check(state_file, RMFS_STATE_FILE);
-	// read the state from the file
-	static char state_buf[2];
-	kernel_read(state_file, state_buf, 2, &state_file->f_pos);
-	filp_close(state_file, NULL);
-	// convert the state to an integer
-	int state_int;
-	if (kstrtoint(state_buf, 10, &state_int)) {
-		printk(KERN_ERR "Failed to convert the state to an integer\n");
+	// check if the given state is valid
+	if (!is_state_valid(get_state_from_str(buf))){
+		LOG_MSG("write error", "invalid state");
 		return -EINVAL;
 	}
-	return state_int;
+	//
+	int new_state;
+	if (kstrtoint(buf, 10, &new_state) < 0){
+		LOG_MSG("write error", "kstrtoint failed");
+		return -EINVAL;
+	}
+	// set the new state
+	rmfs->state = new_state;
+#ifdef DEBUG
+	RM_LOG_STR(rmfs, "changed state to ", get_state_str(rmfs->state));
+	rm_display(rmfs);
+#endif
+	return count;
 }
+
 
 // Define the attrribute struct for the state file
+static rm_attr_t state_attr = __ATTR(state, 0664, state_show, state_store);
 
-static struct kobj_attribute state_attr = __ATTR(state, 0664, state_show, state_store);
-
+// Define the attribute group
 static struct attribute *rmfs_attrs[] = {
-	&state_attr.attr,
-	NULL,
+	&state_attr.attr, // add the state attribute to the group
+	// add other attributes here
+	NULL,	// ! terminate the list with NULL -- mandatory
 };
 
-static struct attribute_group rmfs_groups = {
-	.attrs = rmfs_attrs,
+ATTRIBUTE_GROUPS(rmfs); // define the attribute group adding ##_group to the name
+
+static const struct kobj_type rmfs_ktype = {
+	.sysfs_ops = &rm_sysfs_ops,
+	.release = rm_release,
+	.default_groups = rmfs_groups,
 };
+
+
+// create the state file
+static struct kobject *create_obj(const char *name, struct kset *set){ {
+	// check if the set is valid
+	if (set == NULL){
+		LOG_MSG("Invalid kset", "");
+		return NULL;
+	}
+	// allocate memory for the kobject
+	struct kobject *obj = kzalloc(sizeof(struct kobject*), GFP_KERNEL);
+	if(obj == NULL){
+		LOG_MSG("Failed to allocate memory for kobject", "");
+		return NULL;
+	}
+	// add the kobject to the kset -- we assume that the kset is already created
+	obj->kset = set;
+	// initialize the kobject
+#ifdef DEBUG
+	LOG_MSG("Adding kobject to kset", name);
+#endif
+	if(kobject_init_and_add(&obj, &rmfs_ktype, NULL, "%s", name)) {
+		LOG_MSG("Failed to initialize and add kobject", name);
+		kobject_put(obj);
+		return NULL;
+	}
+	/*
+	 * We are always responsible for sending the uevent that the kobject
+	 * was added to the system.
+	*/
+	kobject_uevent(obj, KOBJ_ADD);
+	return obj;
+
+}
 
 
 // Define the reference monitor instance
 
 rmfs_t* rm_init(void){
-	//rmfs_t *rmfs_ptr = *rmfs_addr;
-	// check if rmfs is a valid pointer
-	rmfs_t *rmfs_ptr = kzalloc(sizeof(rmfs_ptr), GFP_KERNEL_ACCOUNT);
-	mem_check(rmfs_ptr);
-	// initialize the reference monitor
-	rmfs_ptr->name = RMFS_DEFAULT_NAME;
-	rmfs_ptr->state = RMFS_INIT_STATE;
-	rmfs_ptr->blocked_modes = NULL;
-	rmfs_ptr->allowed_modes = NULL;
-	rmfs_ptr->hooked_functions = NULL;
-	rmfs_ptr->id = rnd_id();
-	// create kobject inside /sys
-	rmfs_ptr->kobj = *kobject_create_and_add(rmfs_ptr->name, NULL);
-	// initialize the kobject with the attribute group
-	mem_check(&rmfs_ptr->kobj);
-	// if the kernel object is created, create the sysfs group
-	if (sysfs_create_group(&rmfs_ptr->kobj, &rmfs_groups)) goto free;
-	// initialize the /sys/kremfip/state file
-	set_state(rmfs_ptr, RMFS_INIT_STATE);
-	RM_LOG_MSG(rmfs_ptr, "init success");
-	return rmfs_ptr;
+	// allocate memory for the reference monitor
+	rmfs_t *rm_ptr = kzalloc(sizeof(rmfs_t), GFP_KERNEL);
 
-free:
-	rm_free(rmfs_ptr);
-	return NULL;
+
+	// initialize the reference monitor
+	rmfs_ptr_p->name = RMFS_DEFAULT_NAME;
+	rmfs_ptr_p->state = RMFS_INIT_STATE;
+	rmfs_ptr_p->blocked_modes = NULL;
+	rmfs_ptr_p->allowed_modes = NULL;
+	rmfs_ptr_p->hooked_functions = NULL;
+	rmfs_ptr_p->id = rnd_id();
+	// create kobject inside /sys/
+
+	// initialize the /sys/kremfip/state file
+
+
 }
 
 // Free the reference monitor instance
 
 
-int rm_free(rmfs_t *rmfs){
-	// remove the kobject if it exists
-	if (unlikely(&(rmfs->kobj) != NULL)){
-		RM_LOG_MSG(rmfs, "Releasing kobject");
-		rm_release(&rmfs->kobj);
-	}
-	LOG_MSG("invoking kfree", "rmfs");
-	if (unlikely(rmfs != NULL))	kfree(rmfs);
-	return 0;
-}
 
 
-void rm_display(rmfs_t *rmfs_ptr){
+void rm_display(const rmfs_t *rmfs_ptr){
 	int len = sizeof(snprintf(NULL, 0,
 		"Reference Monitor %s(%d)\n State: %d\n",
 		rmfs_ptr->name, rmfs_ptr->id, rmfs_ptr->state
@@ -187,4 +205,69 @@ void rm_display(rmfs_t *rmfs_ptr){
 	);
 	printk(KERN_INFO "%s\n", disp_msg);
 
+}
+
+
+/****************************************************
+ * Define the reference monitor functions
+ ****************************************************/
+
+int set_state(rmfs_t *rmfs, rm_state_t state) {
+	// check if the state is valid
+	if (!is_state_valid(state)) {
+		LOG_MSG("Trying to set an invalid state", get_state_str(state));
+		return -EINVAL;
+	}
+#ifdef DEBUG
+	RM_LOG_STR(rmfs, "Setting state to ", get_state_str(state));
+	rm_display(rmfs);
+#endif
+	// set the state
+	//rmfs->state = state;
+	// perform write to the state file
+	struct file *state_file = filp_open(RMFS_STATE_FILE, O_WRONLY|O_TRUNC, 0);
+	file_open_check(state_file, RMFS_STATE_FILE);
+	static char state_buf[2];
+	if(snprintf(state_buf, 2, "%d",state) < 0) {
+		printk(KERN_ERR "Failed to convert the state to a string\n");
+		goto error;
+	}
+	// write the state to the file
+	if(kernel_write(state_file, state_buf, 2, &state_file->f_pos) < 0) {
+		printk(KERN_ERR "Failed to write the state to the file\n");
+		goto error;
+	}
+	filp_close(state_file, NULL);
+	return 0;
+	error:
+		filp_close(state_file, NULL);
+	return -EINVAL;
+}
+
+
+
+rm_state_t get_state(void) {
+#ifdef DEBUG
+	LOG_MSG("Reading from state file", RMFS_STATE_FILE);
+#endif
+	// open the state file
+	struct file *state_file = filp_open(RMFS_STATE_FILE, O_RDONLY, 0);
+	file_open_check(state_file, RMFS_STATE_FILE);
+	// read the state from the file
+	static char state_buf[2];
+	if(kernel_read(state_file, state_buf, 2, &state_file->f_pos) < 0) {
+		printk(KERN_ERR "Failed to read the state from the file\n");
+		goto error;
+	}
+	filp_close(state_file, NULL);
+	// convert the state from string to int
+	int state_int;
+	if (kstrtoint(state_buf, 10, &state_int)) {
+		printk(KERN_ERR "Failed to convert the state to an integer\n");
+		return -EINVAL;
+	}
+	return state_int;
+	error:
+		filp_close(state_file, NULL);
+	return -EINVAL;
 }
