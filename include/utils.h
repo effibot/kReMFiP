@@ -13,7 +13,9 @@
 
 // Some useful debug macros
 
-#define LOG_MSG(log_msg, msg) printk(KERN_INFO "[%s::%s::%s]: %s %s\n", MODNAME, __FILE__, __func__, log_msg, msg);
+#define INFO(fmt, ...) \
+    printk(KERN_INFO fmt, ##__VA_ARGS__)
+
 #define RM_LOG_STR(rm, msg, ...) \
     do { \
         if (sizeof((char *[]){__VA_ARGS__}) / sizeof(char *) > 0) { \
@@ -39,7 +41,7 @@
 	}
 
 // Function prototypes
-const int rnd_id(void);
+int rnd_id(void);
 char *get_state_str(rm_state_t state);
 rm_state_t get_state_from_str(const char *state_str);
 bool is_state_valid(rm_state_t state);

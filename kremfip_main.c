@@ -34,17 +34,13 @@ static int __init kremfip_init(void) {
         printk(KERN_ERR "Failed to initialize the reference monitor\n");
         return -ENOMEM;
     }
-    printk(KERN_INFO "test in main");
-    rm_display(container_of(&rmfs_ptr->rm_kstate, rmfs_t, rm_kstate));
-    rm_display(rmfs_ptr);
-
     printk(KERN_INFO "kReMFiP module loaded\n");
     return 0;
 }
 
 static void __exit kremfip_exit(void) {
     LOG_MSG("Unloading the kReMFiP module", "");
-    rm_free(rmfs_ptr);
+    kfree(rmfs_ptr);
     printk(KERN_INFO "kReMFiP module unloaded\n");
 }
 
