@@ -24,13 +24,13 @@
 #include "include/rmfs.h"
 #include "include/utils.h"
 
-rmfs_t *rmfs_ptr = NULL;
+rm_t *rm_p = NULL;
 
 static int __init kremfip_init(void) {
     //rmfs_ptr = kzalloc(sizeof(rmfs_t), GFP_KERNEL);
-    rmfs_ptr = rm_init();
+    rm_p = rm_init();
     //printk(KERN_INFO "%p\n", &rmfs);
-    if (unlikely(rmfs_ptr == NULL)) {
+    if (unlikely(rm_p == NULL)) {
         printk(KERN_ERR "Failed to initialize the reference monitor\n");
         return -ENOMEM;
     }
@@ -39,9 +39,8 @@ static int __init kremfip_init(void) {
 }
 
 static void __exit kremfip_exit(void) {
-    LOG_MSG("Unloading the kReMFiP module", "");
-    kfree(rmfs_ptr);
-    printk(KERN_INFO "kReMFiP module unloaded\n");
+    kfree(rm_p);
+    INFO("Module unloaded\n");
 }
 
 
