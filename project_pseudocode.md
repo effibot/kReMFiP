@@ -126,3 +126,10 @@ p1 ----- p2 ----- p4 ----- p6
 c1       p3       c4       p7
 |                 |
 c2 - c3           c5
+
+
+RCU kernel doc
+https://www.kernel.org/doc/html/next/RCU/whatisRCU.html#id11
+
+userspace rcu
+https://github.com/urcu/userspace-rcu
