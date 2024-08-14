@@ -5,7 +5,7 @@
 #ifndef RMFS_H
 #define RMFS_H
 
-#include <linux/kobject.h>
+#include "ht_dllist.h"
 
 typedef enum _rm_state_t {
     OFF = 0,
@@ -19,7 +19,7 @@ typedef enum _rm_state_t {
 typedef struct _rm_t {
     const char *name;                 // Name of the reference monitor
     rm_state_t state;                  // State of the reference monitor
-    //TODO: list of protected paths
+    ht_t *ht;                           // Hash table for the reference monitor
     const int *blocked_modes;          // List of blacklisted modes - not used
     const int *allowed_modes;          // List of whitelisted modes
     const char *hooked_functions;        // List of hooked functions

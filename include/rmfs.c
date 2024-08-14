@@ -36,7 +36,16 @@ rm_t *rm_init(void) {
 	rm->name = RMFS_DEFAULT_NAME;
 	rm->state = RM_INIT_STATE;
 	rm->id = rnd_id();
-
+	// Initialize the hash table
+	INFO("initializing the hash table");
+	rm->ht = ht_create(HT_SIZE, NULL);
+	if (unlikely(rm->ht == NULL)) {
+		INFO("Failed to initialize the hash table");
+		kfree(rm);
+		return NULL;
+	}
+	INFO("Hash table initialized");
+	ht_print(rm->ht);
 	return rm;
 }
 // Free the reference monitor instance

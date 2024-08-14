@@ -15,12 +15,8 @@
 
 #define INFO(fmt, ...) \
     /* base msg is: [MODNAME::func_name]: */ \
-    printk(KERN_INFO "[%s::%s]: " fmt, MODNAME, __func__, ##__VA_ARGS__);
+    printk(KERN_INFO "[%s::%s::%s::%d]: " fmt, MODNAME, __FILE__,  __func__, __LINE__, ##__VA_ARGS__);
 
-#define SHOW(attr_name) \
-    printk(KERN_INFO "[%s::%s]: Show operation invoked for attribute %s\n", MODNAME, __func__, attr_name)
-#define STORE(attr_name) \
-    printk(KERN_INFO "[%s::%s]: Store operation invoked for attribute %s\n", MODNAME, __func__, attr_name)
 
 // Function prototypes
 unsigned int rnd_id(void);
