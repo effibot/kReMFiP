@@ -39,7 +39,8 @@ static int __init kremfip_init(void) {
 }
 
 static void __exit kremfip_exit(void) {
-    kfree(rm_p);
+    //kfree(rm_p);
+    rm_free(rm_p);
     INFO("Module unloaded\n");
 }
 

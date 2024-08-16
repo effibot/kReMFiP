@@ -12,6 +12,8 @@
  * Author: Andrea Efficace (andrea.efficace1@gmail.com
  * Date: 13/08/24
  *
+ * Heavily inspired by linux/hashtable.h and linux/rculist.h
+ *
  */
 
 
@@ -19,9 +21,14 @@
 #define HT_DLLIST_H
 
 #include <linux/types.h>
+#include <linux/spinlock.h>
+
+#ifndef HT_BIT_SIZE
+#define HT_BIT_SIZE 8
+#endif
 
 #ifndef HT_SIZE
-#define HT_SIZE 4096
+#define HT_SIZE (1 << HT_BIT_SIZE)
 #endif
 
 #ifndef DEBUG
@@ -56,11 +63,13 @@ typedef struct _ht_t {
     node_t **table; // array of pointers to the heads of the linked lists
     size_t size; // size of the hash table
     size_t (*hash)(void *); // hash function
+    spinlock_t lock; // spinlock to protect the hash table
 } __attribute__ ((aligned(X86_CACHE_LINE_SIZE))) ht_t;
+
 
 // define function prototypes
 ht_t *ht_create(size_t size, size_t (*hash)(void *));
-int ht_destroy(const ht_t *ht);
+int ht_destroy(ht_t *ht);
 int ht_insert(const ht_t *ht, void *data);
 int ht_delete(const ht_t *ht, void *data);
 void *ht_search(const ht_t *ht, void *data);

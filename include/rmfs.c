@@ -88,3 +88,15 @@ rm_state_t get_state(rm_t *rm) {
 	// return the state
 	return rm->state;
 }
+
+void rm_free(rm_t *rm) {
+	// assert that the reference monitor is not NULL
+	if (rm == NULL) {
+		INFO("Reference monitor is NULL");
+		return;
+	}
+	// free the hash table
+	ht_destroy(rm->ht);
+	// free the reference monitor
+	kfree(rm);
+}
