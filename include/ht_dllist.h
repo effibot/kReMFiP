@@ -70,13 +70,19 @@ typedef struct _ht_t {
 // define function prototypes
 ht_t *ht_create(size_t size, size_t (*hash)(void *));
 int ht_destroy(ht_t *ht);
-int ht_insert(const ht_t *ht, void *data);
-int ht_delete(const ht_t *ht, void *data);
-void *ht_search(const ht_t *ht, void *data);
-size_t ht_size(const ht_t *ht);
-size_t ht_count(const ht_t *ht, size_t index);
-size_t ht_count_free(const ht_t *ht);
+int ht_insert(ht_t *ht, void *data);
+int ht_delete(ht_t *ht, void *data);
+void *ht_search(ht_t *ht, void *data);
+size_t ht_count(ht_t *ht, size_t index);
+size_t ht_get_count_at(ht_t *ht, size_t index);
+//size_t ht_count_free(ht_t *ht);
 void ht_print(ht_t *ht);
+size_t ht_get_index(ht_t *ht, void *data);
+ht_t *ht_get_instance(void);
+
+// define macro for read operations
+
+
 #endif //HT_DLLIST_H
 
 /* https://www.oreilly.com/library/view/linux-device-drivers/0596000081/ch10s05.html */

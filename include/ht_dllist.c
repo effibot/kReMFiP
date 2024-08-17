@@ -10,7 +10,9 @@
 
 
 static char* selected_hash = "unknown";
-ht_t __rcu *glb_ht;
+static ht_t __rcu *glb_ht;
+
+
 /* Internal API to manage the hash table - not exposed to the user.
  * The wrapper API, defined in ht_dllist.h, will call these functions,
  * and they are responsible for the RCU protection.
@@ -18,7 +20,12 @@ ht_t __rcu *glb_ht;
 int _ht_release_list(node_t **table, int bkt); // effectively release the memory allocated at given bucket index
 int _ht_release_table(node_t **table); // effectively release the memory allocated for the hash table
 size_t _ht_index(ht_t *ht, void *data);
-void _ht_print_list(node_t **table, size_t index);
+void _ht_print_list(node_t *table);
+size_t _ht_count_list(node_t *table);
+
+ht_t *ht_get_instance(void) {
+    return glb_ht;
+}
 
 ht_t *ht_create(const size_t size, size_t (*hash)(void *)) {
     if(unlikely(size == 0) /*|| unlikely(hash == NULL)*/) {
@@ -90,47 +97,98 @@ int ht_destroy(ht_t *ht) {
     return 0;
 }
 
-// int ht_insert(const ht_t *ht, void *data);
+int ht_insert(ht_t *ht, void *data) {
+    if(unlikely(ht == NULL || data == NULL)) {
+#ifdef DEBUG
+        INFO("Passing null table (%p) or null data (%p)\n", ht, data);
+#endif
+        return -EINVAL;
+    }
+    // we are modifying the hash table, so we are entering the critical section
+    ht_t *new_ht = kmalloc(sizeof(new_ht), GFP_KERNEL);
+    if (unlikely(new_ht == NULL)) {
+        INFO("Failed to allocate memory for new hash table\n");
+        return -ENOMEM;
+    }
+    // grab the lock
+    ht_t *old_ht;
+    spin_lock(&ht->lock);
+    // get the current hash table
+    old_ht = rcu_dereference_protected(ht, lockdep_is_held(&ht->lock));
+    *new_ht = *old_ht;
+    // now we are safe to modify the hash table
+    size_t index = _ht_index(new_ht, data);
+    node_t *new_node = kmalloc(sizeof(new_node), GFP_KERNEL);
+    if (unlikely(new_node == NULL)) {
+        INFO("Failed to allocate memory for new node\n");
+        return -ENOMEM;
+    }
+    new_node->data = data;
+    list_add_rcu(&new_node->list, &new_ht->table[index]->list);
+    // update the hash table, then release the lock and synchronize the RCU
+    rcu_assign_pointer(ht, new_ht);
+    spin_unlock(&ht->lock);
+    synchronize_rcu();
+    kfree(old_ht);
+    return 0;
+
+}
 //
 // int ht_delete(const ht_t *ht, void *data);
 //
 // void *ht_search(const ht_t *ht, void *data);
 
-size_t ht_size(const ht_t *ht) {
+
+// count the number of elements in the hash table
+
+size_t *ht_count(ht_t *ht) {
+    size_t count[HT_SIZE] = {0};
     if(unlikely(ht == NULL)) {
-        return 0;
+#ifdef DEBUG
+        INFO("Passing Null table (%p)\n", ht);
+#endif
+        goto ret;
     }
-    return ht->size;
-}
-
-// count the number of elements in the list at the given index
-
-size_t ht_count(const ht_t *ht, const size_t index) {
-    if(unlikely(ht == NULL) || unlikely(index >= ht->size)) {
-        return 0;
+    rcu_read_lock();
+    const ht_t *tmp_ht = rcu_dereference(ht);
+    for(size_t i = 0; i < HT_SIZE; i++) {
+        count[i] = _ht_count_list(tmp_ht->table[i]);
     }
-    // standard way to do it
-    size_t count = 0;
-    node_t *pos;
-    list_for_each_entry(pos, &ht->table[index]->list, list) {
-        count++;
-    }
+    rcu_read_unlock();
+ret:
     return count;
 }
 
 // count the number of free elements in the hash table
 
-size_t ht_count_free(const ht_t *ht) {
-    if(unlikely(ht == NULL)) {
-        return 0;
+// size_t ht_count_free(const ht_t *ht) {
+//
+// }
+
+size_t _ht_count_list(node_t *table) {
+    if (unlikely(table == NULL)) {
+#ifdef DEBUG
+        INFO("Passing null table (%p)\n", table);
+#endif
+        return -EINVAL;
     }
+    // initialize the counter
     size_t count = 0;
-    for(size_t i = 0; i < ht->size; i++) {
-        if (ht->table[i]->data == NULL) {
-            count++;
-        }
+    struct list_head *node;
+    // iterate over the list
+    list_for_each_rcu(node, &table->list) {
+        count++;
     }
     return count;
+}
+
+size_t ht_get_count_at(ht_t *ht, size_t index) {
+    if(unlikely(ht == NULL || index < 0 || index >= HT_SIZE)) {
+#ifdef DEBUG
+        INFO("Passing null table (%p) or invalid index (%lu)\n", ht, index);
+#endif
+    }
+    return ht_count(ht)[index];
 }
 
 void ht_print(ht_t *ht) {
@@ -141,27 +199,27 @@ void ht_print(ht_t *ht) {
         return;
     }
     // print hash table infos
-    INFO("Table of size %lu, using hash function: %s\n", ht->size, selected_hash);
-    for(size_t i = 0; i < ht->size; i++) {
+    INFO("Table of size %d, using hash function: %s\n", HT_SIZE, selected_hash);
+    rcu_read_lock();
+    for(size_t i = 0; i < HT_SIZE; i++) {
         // print the number of elements in the list at the given index
-        if(ht->table[i]->data != NULL) {
-            INFO("Index %lu: %lu elements\n", i, ht_count(ht, i));
-            _ht_print_list(ht->table, i);
-        }
+        node_t *tmp_head = rcu_dereference(ht)->table[i];
+        _ht_print_list(tmp_head);
     }
-    INFO("Free remaining slots: %lu\n", ht_count_free(ht));
+    rcu_read_unlock();
+    INFO("End of table\n");
 }
 
-void _ht_print_list(node_t **table, size_t index) {
-    if(unlikely(table == NULL) || unlikely(index >= HT_SIZE)) {
+void _ht_print_list(node_t *table) {
+    if(unlikely(table == NULL)) {
 #ifdef DEBUG
-        INFO("passing null table (%p) or bad index (%lu)\n", table, index);
+        INFO("passing null table (%p)\n", table);
 #endif
         return;
     }
     // print the elements in the list at the given index
     node_t *tmp_head;
-    list_for_each_entry_rcu(tmp_head, &table[index]->list, list) {
+    list_for_each_entry_rcu(tmp_head, &table->list, list) {
         INFO("Data: %p -->\t", tmp_head->data);
     }
     printk("\n");
@@ -206,9 +264,10 @@ int _ht_release_table(node_t **table) {
 }
 
 size_t _ht_index(ht_t *ht, void *data) {
-    rcu_read_lock();
-    const ht_t *tmp_ht = rcu_dereference(ht);
-    const size_t index = tmp_ht->hash(data) % tmp_ht->size;
-    rcu_read_unlock();
-    return index;
+    if(unlikely(ht == NULL || data == NULL)) {
+#ifdef DEBUG
+        INFO("Passing null table (%p) or null data (%p)\n", ht, data);
+#endif
+    }
+    return ht->hash(data) % HT_SIZE;
 }
