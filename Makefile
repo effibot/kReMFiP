@@ -24,16 +24,6 @@ INCLUDES=-I$(IDIR)
 # Kernel Module Directory
 KDIR := /lib/modules/$(shell uname -r)/build
 
-# Optimization Flags
-OPTFLAGS_DEFAULT=-O3
-OPTFLAGS_DEBUG=-Og
-
-# Checks if the DEBUG flag is set
-ifeq ($(DEBUG), 0)
-OPTFLAGS=$(OPTFLAGS_DEFAULT)
-else
-OPTFLAGS=$(OPTFLAGS_DEBUG)
-endif
 
 # Compiler Flags
 CFLAGS=-Wall -Wextra -Werror $(INCLUDES)

@@ -22,13 +22,22 @@
 
 #include <linux/types.h>
 #include <linux/spinlock.h>
+#include <linux/uuid.h>
 
 #ifndef HT_BIT_SIZE
-#define HT_BIT_SIZE 8
+#define HT_BIT_SIZE 8 // default size of the hash table
 #endif
 
+// be sure that the size of the hash table is under the maximum key size we can have
+#if HT_BIT_SIZE > 32
+printk("The size of the hash table is too big. We'll reduce to 32 bits\n");
+#undef HT_BIT_SIZE
+#define HT_BIT_SIZE 32
+#endif
+
+
 #ifndef HT_SIZE
-#define HT_SIZE (1 << HT_BIT_SIZE)
+#define HT_SIZE (1 << HT_BIT_SIZE) // this is 2^HT_BIT_SIZE
 #endif
 
 #ifndef DEBUG
@@ -40,8 +49,8 @@
 
 // define the data structure that will be stored in the linked list
 typedef struct _path_data_t {
-    char *path;
-    int len;
+    char *path; // path of the file - eg /home/user/file.txt
+    int len; // length of the path string
 } __attribute__ ((packed)) path_t;
 
 // define the data structure that will be stored in the hash table
@@ -56,6 +65,8 @@ typedef struct head_data_t {
 typedef struct _ht_dllist_node_t {
     struct list_head list; // kernel-list: provides pointers to next and previous element
     void *data; // we point to a generic data
+    char *key; // key of the element - this must come from a unique identifier of the data
+    struct rcu_head rcu; // used for RCU
 } __attribute__ ((aligned(X86_CACHE_LINE_SIZE))) node_t;
 
 // the hash table wich nodes are the heads of the linked lists
@@ -72,16 +83,15 @@ ht_t *ht_create(size_t size, size_t (*hash)(void *));
 int ht_destroy(ht_t *ht);
 int ht_insert(ht_t *ht, void *data);
 int ht_delete(ht_t *ht, void *data);
-void *ht_search(ht_t *ht, void *data);
-size_t ht_count(ht_t *ht, size_t index);
+size_t *ht_count(ht_t *ht);
 size_t ht_get_count_at(ht_t *ht, size_t index);
-//size_t ht_count_free(ht_t *ht);
 void ht_print(ht_t *ht);
-size_t ht_get_index(ht_t *ht, void *data);
 ht_t *ht_get_instance(void);
+void * ht_lookup(ht_t * ht, void * data);
 
-// define macro for read operations
 
+// define the hash function
+size_t hash_path(node_t *node);
 
 #endif //HT_DLLIST_H
 
