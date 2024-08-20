@@ -35,6 +35,8 @@ int set_state(rm_t *rm, rm_state_t state);
 rm_state_t get_state(rm_t *rm);
 void rm_display(const rm_t *rm);
 void rm_free(rm_t *rm);
+
+
 // define constants for files management
 #define RM_INIT_STATE OFF
 #define RMFS_DEFAULT_NAME "rmfs"

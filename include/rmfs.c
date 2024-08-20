@@ -18,10 +18,13 @@
 #include <linux/fs.h>
 #include <linux/types.h>
 #include <linux/list.h>
+#include <linux/hash.h>
+#include <linux/namei.h>
 #include "rmfs.h"
 #include "utils.h"
 
 #define DEBUG 1
+
 
 // Define the reference monitor instance
 
@@ -38,14 +41,13 @@ rm_t *rm_init(void) {
 	rm->id = rnd_id();
 	// Initialize the hash table
 	INFO("initializing the hash table");
-	rm->ht = ht_create(HT_SIZE, NULL);
+	rm->ht = ht_create(HT_SIZE);
 	if (unlikely(rm->ht == NULL)) {
 		INFO("Failed to initialize the hash table");
 		kfree(rm);
 		return NULL;
 	}
 	INFO("Hash table initialized");
-	ht_print(rm->ht);
 	return rm;
 }
 // Free the reference monitor instance
@@ -100,3 +102,6 @@ void rm_free(rm_t *rm) {
 	// free the reference monitor
 	kfree(rm);
 }
+
+
+

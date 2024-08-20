@@ -22,11 +22,12 @@
 
 #include <linux/types.h>
 #include <linux/spinlock.h>
-#include <linux/uuid.h>
 
 #ifndef HT_BIT_SIZE
-#define HT_BIT_SIZE 8 // default size of the hash table
+#define HT_BIT_SIZE 2 // default size of the hash table
 #endif
+
+#define HT_BIT_KEY_SIZE 32 // default size of the key -- maximum amount of bits to (hopefully) avoid collisions
 
 // be sure that the size of the hash table is under the maximum key size we can have
 #if HT_BIT_SIZE > 32
@@ -47,25 +48,11 @@ printk("The size of the hash table is too big. We'll reduce to 32 bits\n");
 // define the size of the cache line for x86 architecture
 #define X86_CACHE_LINE_SIZE 64
 
-// define the data structure that will be stored in the linked list
-typedef struct _path_data_t {
-    char *path; // path of the file - eg /home/user/file.txt
-    int len; // length of the path string
-} __attribute__ ((packed)) path_t;
-
-// define the data structure that will be stored in the hash table
-/*
-typedef struct head_data_t {
-    size_t count; // number of elements in the linked list
-    path_t *cached_data;
-} __attribute__ ((packed)) head_t;
-*/
-
 // the node of the doubly linked list
 typedef struct _ht_dllist_node_t {
     struct list_head list; // kernel-list: provides pointers to next and previous element
-    void *data; // we point to a generic data
-    char *key; // key of the element - this must come from a unique identifier of the data
+    char *path; // path of the file - eg /home/user/file.txt
+    size_t key; // key of the element - obtained as a hash of the path
     struct rcu_head rcu; // used for RCU
 } __attribute__ ((aligned(X86_CACHE_LINE_SIZE))) node_t;
 
@@ -73,25 +60,25 @@ typedef struct _ht_dllist_node_t {
 typedef struct _ht_t {
     node_t **table; // array of pointers to the heads of the linked lists
     size_t size; // size of the hash table
-    size_t (*hash)(void *); // hash function
     spinlock_t lock; // spinlock to protect the hash table
 } __attribute__ ((aligned(X86_CACHE_LINE_SIZE))) ht_t;
 
 
 // define function prototypes
-ht_t *ht_create(size_t size, size_t (*hash)(void *));
+ht_t* ht_create(size_t size);
 int ht_destroy(ht_t *ht);
-int ht_insert(ht_t *ht, void *data);
-int ht_delete(ht_t *ht, void *data);
-size_t *ht_count(ht_t *ht);
+int ht_insert(ht_t *ht, node_t *node);
+int ht_delete(ht_t *ht, node_t *node);
+size_t* ht_count(ht_t *ht);
 size_t ht_get_count_at(ht_t *ht, size_t index);
 void ht_print(ht_t *ht);
-ht_t *ht_get_instance(void);
-void * ht_lookup(ht_t * ht, void * data);
-
+ht_t* ht_get_instance(void);
+node_t* ht_lookup(ht_t *ht, node_t *node);
+node_t* node_init(const char* path);
 
 // define the hash function
-size_t hash_path(node_t *node);
+size_t hash_node(node_t *node);
+
 
 #endif //HT_DLLIST_H
 
