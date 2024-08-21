@@ -1,12 +1,12 @@
 /**
  * ht_dllist.h
  *
- * This is an implementation of a hash table with use a doubly linked list to resolve collisions.
+ * This is an implementation of a hash table which use doubly linked lists to resolve collisions.
  * The choice of a doubly linked list is due to the fact that it is a simple data structure that
  * allows to insert and delete elements in constant time.
  *
  * The hash table is implemented as an array of pointers to the head of the linked list.
- * The hash function is taken as a parameter and it is used to calculate the index of the array
+ * The hash function is taken as a parameter, and it is used to calculate the index of the array
  * where the element should be inserted.
  *
  * Author: Andrea Efficace (andrea.efficace1@gmail.com
@@ -50,9 +50,9 @@ printk("The size of the hash table is too big. We'll reduce to 32 bits\n");
 
 // the node of the doubly linked list
 typedef struct _ht_dllist_node_t {
-    struct list_head list; // kernel-list: provides pointers to next and previous element
     char *path; // path of the file - eg /home/user/file.txt
     size_t key; // key of the element - obtained as a hash of the path
+    struct list_head list; // kernel-list: provides pointers to next and previous element
     struct rcu_head rcu; // used for RCU
 } __attribute__ ((aligned(X86_CACHE_LINE_SIZE))) node_t;
 
@@ -60,15 +60,15 @@ typedef struct _ht_dllist_node_t {
 typedef struct _ht_t {
     node_t **table; // array of pointers to the heads of the linked lists
     size_t size; // size of the hash table
-    spinlock_t lock; // spinlock to protect the hash table
+    spinlock_t *lock; // spinlock array to protect the hash table buckets
 } __attribute__ ((aligned(X86_CACHE_LINE_SIZE))) ht_t;
 
 
 // define function prototypes
 ht_t* ht_create(size_t size);
 int ht_destroy(ht_t *ht);
-int ht_insert(ht_t *ht, node_t *node);
-int ht_delete(ht_t *ht, node_t *node);
+int ht_insert_node(ht_t *ht, node_t *node);
+int ht_delete_node(ht_t *ht, node_t *node);
 size_t* ht_count(ht_t *ht);
 size_t ht_get_count_at(ht_t *ht, size_t index);
 void ht_print(ht_t *ht);

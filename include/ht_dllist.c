@@ -2,16 +2,16 @@
 // Created by effi on 13/08/24.
 //
 
-#include "ht_dllist.h"
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/uuid.h>
 #include <linux/hash.h>
 #include <linux/fs.h>
-#include <linux/err.h>
 #include <linux/namei.h>
+#include <linux/rculist.h>
 #include "utils.h"
 
+#include "ht_dllist.h"
 
 
 
@@ -20,61 +20,150 @@
  * The wrapper API, defined in ht_dllist.h, will call these functions,
  * and they are responsible for the RCU protection.
  */
-int _ht_release_list(node_t *list); // effectively release the memory allocated at given bucket index
-int _ht_release_table(node_t **table); // effectively release the memory allocated for the hash table
-size_t _ht_index(node_t *node); // get the index of the element in the hash table
-void _ht_print_list(node_t *list); // print the elements in the given list
-size_t _ht_count_list(node_t *list); // count the number of elements in the given list
-node_t* _ht_search_list_key(node_t *list, size_t key); // search for the data in the given list
-node_t* _ht_remove_from_list(node_t *list, node_t *node); // remove the data from the given list
-size_t _gen_key(const char* path); // generate a unique key for the data
-bool _is_path_valid(const char* path);
-bool _path_exists(const char* path);
-size_t _ht_index(node_t *node);
+int __ht_release_list(node_t *list); // effectively release the memory allocated at given bucket index
+int __ht_release_table(node_t **table); // effectively release the memory allocated for the hash table
+size_t __ht_index(node_t *node); // get the index of the element in the hash table
+void __ht_print_list(node_t *list); // print the elements in the given list
+size_t __ht_count_list(node_t *list); // count the number of elements in the given list
+node_t* __ht_search_list_key(node_t *list, size_t key); // search for the data in the given list
+node_t* __ht_remove_from_list(node_t *list, node_t *node); // remove the data from the given list
+size_t __gen_key(const char* path); // generate a unique key for the data
+bool __is_path_valid(const char* path);
+bool __path_exists(const char* path);
+size_t __ht_index(node_t *node);
+ht_t *__ht_create(size_t size); // create the hash table
 
-static ht_t __rcu *glb_ht; // global hash table
-// get the instance of the global hash table
-ht_t *ht_get_instance(void) {
-    return rcu_dereference(glb_ht);
-}
 
-ht_t *ht_create(const size_t size) {
+
+/**
+ * @name ht_get_instance
+ * @brief Get the global hash table instance like a singleton.
+ * @return the global hash table instance
+ */
+
+static ht_t *__ht_create(size_t size) {
     if(unlikely(size == 0)) {
 #ifdef DEBUG
         INFO("Failed to create hash table (size: %lu)\n", size);
 #endif
         return NULL;
     }
-    glb_ht = kzalloc(sizeof(*glb_ht), GFP_KERNEL);
-    if (unlikely(glb_ht == NULL)) {
+    ht_t *table = kzalloc(sizeof(*table), GFP_KERNEL);
+    if (unlikely(table == NULL)) {
         INFO("Failed to allocate memory for hash table\n");
         goto ret_null;
     }
-    glb_ht->size = size;
-    spin_lock_init(&glb_ht->lock);
+    // set the size of the hash table
+    table->size = size;
     // allocate memory for the heads of the lists
-    glb_ht->table = kzalloc(size * sizeof(node_t), GFP_KERNEL);
-    if (unlikely(glb_ht->table == NULL)) {
+    table->table = kzalloc(size * sizeof(node_t), GFP_KERNEL);
+    if (unlikely(table->table == NULL)) {
         INFO("Failed to allocate memory for hash table\n");
         goto free_table;
     }
-    // initialize the heads of the lists
-    for (size_t i = 0; i < size; i++) {
-        glb_ht->table[i] = kzalloc(sizeof(node_t), GFP_KERNEL);
-        /* from rculist.h, if at init time the list isn't going to be used
-         * or to be visible to readers, we don't need to use INIT_LIST_HEAD_RCU
-         */
-        INIT_LIST_HEAD(&glb_ht->table[i]->list);
+    // allocate memory for the spinlocks - one per bucket
+    table->lock = kzalloc(size * sizeof(spinlock_t), GFP_KERNEL);
+    // initialize the heads of the lists and the spinlocks
+    for (size_t bkt = 0; bkt < size; bkt++) {
+        table->table[bkt] = kzalloc(sizeof(node_t), GFP_KERNEL);
+        if (unlikely(table->table[bkt] == NULL)) {
+            INFO("Failed to allocate memory for list at bucket %lu\n", bkt);
+            goto free_table;
+        }
+        INIT_LIST_HEAD_RCU(&table->table[bkt]->list);
+        // initialize per-bucket spinlock
+        spin_lock_init(&table->lock[bkt]);
     }
     INFO("allocated memory for hash table\n");
-    return glb_ht;
+    return table;
 
 free_table:
-    kfree(glb_ht);
+    kfree(table);
 ret_null:
     return NULL;
 }
 
+
+/**
+ * @name ht_insert
+ * @brief Insert a new element in the given list in RCU way.
+ * @param head - the head of the list where the element will be inserted
+ * @param node - the element to be inserted
+ * @return
+ */
+int __ht_insert_at(node_t *head, node_t *node) {
+    if (unlikely(head == NULL || node == NULL)) {
+#ifdef DEBUG
+        INFO("Passing null head (%p) or null node (%p)\n", head, node);
+#endif
+        return -EINVAL;
+    }
+    // insert the node at the head of the list
+    list_add_rcu(&node->list, &head->list);
+    return 0;
+}
+
+
+/**
+ * @name ht_insert
+ * @brief Insert a new element in the hash table.
+ * @param ht - the hash table where the element will be inserted
+ * @param node - the element to be inserted
+ * @return
+ */
+int ht_insert_node(ht_t* ht, node_t *node) {
+    if(unlikely(ht == NULL || node == NULL)) {
+#ifdef DEBUG
+        INFO("Passing null table (%p) or null data (%p)\n", ht, node);
+#endif
+        return -EINVAL;
+    }
+    // Enter read-side critical section
+    INFO("looking up")
+    // check if the data is already in the hash table
+    if (ht_lookup(ht, node) != NULL) {
+        INFO("Data already in the hash table\n");
+        return -EEXIST;
+    }
+    // we are modifying the hash table, so we are entering the critical section
+    ht_t *new_ht = kzalloc(sizeof(new_ht), GFP_KERNEL);
+    if (unlikely(new_ht == NULL)) {
+        INFO("Failed to allocate memory for new hash table\n");
+        return -ENOMEM;
+    }
+    // grab the lock
+    ht_t *old_ht;
+    size_t index = __ht_index(node);
+    spin_lock(&ht->lock[index]);
+    INFO("grabbing the lock");
+    // get the current hash table
+    old_ht = rcu_dereference_protected(ht, lockdep_is_held(&ht->lock));
+    *new_ht = *old_ht;
+    // now we are safe to modify the hash table
+
+    // insert the node at the head of the list belonging to the given index
+    INFO("ADDING");
+    list_add_rcu(&node->list, &new_ht->table[index]->list);
+    INFO("ADDED");
+    // update the hash table, then release the lock and synchronize the RCU
+    rcu_assign_pointer(ht, new_ht);
+    spin_unlock(&ht->lock[index]);
+    INFO("releasing the lock");
+    synchronize_rcu();
+    INFO("sync");
+    kfree(old_ht);
+    return 0;
+
+}
+
+static void __node_reclaim_callback(struct rcu_head *rcu) {
+    const node_t *node = container_of(rcu, node_t, rcu);
+#ifdef DEBUG
+    INFO("Callback free for node with key %lu. Preempt count: %d\n", node->key, preempt_count());
+#endif
+    kfree(node);
+
+}
 
 /**
  * @name ht_destroy
@@ -93,67 +182,20 @@ int ht_destroy(ht_t *ht) {
         return -ENOMEM;
     }
     ht_t *old_ht;
-    spin_lock(&ht->lock);
-    old_ht = rcu_dereference_protected(ht, lockdep_is_held(&ht->lock));
-    *new_ht = *old_ht;
-    // free the memory allocated for the heads of the lists
-    _ht_release_table(new_ht->table);
-    rcu_assign_pointer(ht, new_ht);
-    spin_unlock(&ht->lock);
-    synchronize_rcu();
-    kfree(old_ht);
-    kfree(ht);
-    return 0;
-}
+    for (size_t i = 0; i < HT_SIZE; i++) {
+        spin_lock(&ht->lock[i]);
+        old_ht = rcu_dereference_protected(ht, lockdep_is_held(&ht->lock[i]));
 
-/**
- * @name ht_insert
- * @brief Insert a new element in the hash table.
- * @param ht - the hash table where the element will be inserted
- * @param node - the element to be inserted
- * @return
- */
-int ht_insert(ht_t *ht, node_t *node) {
-    if(unlikely(ht == NULL || node == NULL)) {
-#ifdef DEBUG
-        INFO("Passing null table (%p) or null data (%p)\n", ht, node);
-#endif
-        return -EINVAL;
+        *new_ht = *old_ht;
+        // free the memory allocated for the heads of the lists
+        __ht_release_table(new_ht->table);
+        rcu_assign_pointer(ht, new_ht);
+        spin_unlock(&ht->lock[i]);
+        synchronize_rcu();
+        kfree(old_ht);
+        kfree(ht);
     }
-    INFO("looking up")
-    // check if the data is already in the hash table
-    if (ht_lookup(ht, node) != NULL) {
-        INFO("Data already in the hash table\n");
-        return -EEXIST;
-    }
-    // we are modifying the hash table, so we are entering the critical section
-    ht_t *new_ht = kzalloc(sizeof(new_ht), GFP_KERNEL);
-    if (unlikely(new_ht == NULL)) {
-        INFO("Failed to allocate memory for new hash table\n");
-        return -ENOMEM;
-    }
-    // grab the lock
-    ht_t *old_ht;
-    spin_lock(&ht->lock);
-    INFO("grabbing the lock");
-    // get the current hash table
-    old_ht = rcu_dereference_protected(ht, lockdep_is_held(&ht->lock));
-    *new_ht = *old_ht;
-    // now we are safe to modify the hash table
-    size_t index = _ht_index(node);
-    // insert the node at the head of the list belonging to the given index
-    INFO("ADDING");
-    list_add_rcu(&node->list, &new_ht->table[index]->list);
-    INFO("ADDED");
-    // update the hash table, then release the lock and synchronize the RCU
-    rcu_assign_pointer(ht, new_ht);
-    spin_unlock(&ht->lock);
-    INFO("releasing the lock");
-    synchronize_rcu();
-    INFO("sync");
-    kfree(old_ht);
     return 0;
-
 }
 
 // count the number of elements in the hash table
@@ -170,7 +212,7 @@ size_t *ht_count(ht_t *ht) {
     rcu_read_lock();
     const ht_t *tmp_ht = rcu_dereference(ht);
     for(size_t i = 0; i < HT_SIZE; i++) {
-        count[i] = _ht_count_list(tmp_ht->table[i]);
+        count[i] = __ht_count_list(tmp_ht->table[i]);
     }
     rcu_read_unlock();
 ret:
@@ -220,7 +262,7 @@ void ht_print(ht_t *ht) {
         // print the number of elements in the list at the given index
         node_t *tmp_list_head = rcu_dereference(ht)->table[i];
         printk("Index %lu: %lu elements\n", i, _ht_count_list(tmp_list_head));
-        _ht_print_list(tmp_list_head);
+        __ht_print_list(tmp_list_head);
     }
     rcu_read_unlock();
     INFO("End of table\n");
@@ -281,7 +323,7 @@ int _ht_release_table(node_t **table) {
 }
 
 /**
-* @name _ht_index
+* @name __ht_index
 * @brief Get the index of the element in the hash table.
 * @param ht - the hash table
 * @param node - the element to be inserted
@@ -295,12 +337,12 @@ node_t* ht_lookup(ht_t *ht, node_t *node) {
         goto not_found;
     }
     // find the list where the data should be - no need to lock the hash table
-    const size_t index = _ht_index(node);
+    const size_t index = __ht_index(node);
     // we need to iterate over the linked list at the given index in the hash table
     // so we need to lock the hash table
     rcu_read_lock();
     node_t *tmp_head = rcu_dereference(ht)->table[index];
-    node_t *found = _ht_search_list_key(tmp_head, node->key);
+    node_t *found = __ht_search_list_key(tmp_head, node->key);
     rcu_read_unlock();
     if (found != NULL) {
         return found;
@@ -309,7 +351,7 @@ not_found:
     return NULL;
 }
 
-node_t* _ht_search_list_key(node_t *list, const size_t key) {
+node_t* __ht_search_list_key(node_t *list, const size_t key) {
     if(unlikely(list == NULL || key <= 0)) {
 #ifdef DEBUG
         INFO("Passing null list (%p) or invalid key (%lu)\n", list, key);
@@ -328,7 +370,7 @@ not_found:
     return NULL;
 }
 
-node_t* _ht_remove_from_list(node_t *list, node_t *node) {
+node_t* __ht_remove_from_list(node_t *list, node_t *node) {
     if (unlikely(list == NULL || node == 0)) {
 #ifdef DEBUG
         INFO("Passing null list (%p) or null node (%p)\n", list, node);
@@ -340,14 +382,14 @@ node_t* _ht_remove_from_list(node_t *list, node_t *node) {
     // remember that we are using a doubly linked list, so we can swap the pointers
 
     // be sure that the data is in the list
-    if (_ht_search_list_key(list, node->key) == NULL) {
+    if (__ht_search_list_key(list, node->key) == NULL) {
 #ifdef DEBUG
         INFO("Data not found in the list\n");
 #endif
         return NULL;
     }
     // the data is in the list
-    node_t *to_be_removed = _ht_search_list_key(list, node->key);
+    node_t *to_be_removed = __ht_search_list_key(list, node->key);
     // the item is in the list, so we can swap the pointers
     struct list_head *prev = to_be_removed->list.prev;
     struct list_head *next = to_be_removed->list.next;
@@ -357,7 +399,7 @@ node_t* _ht_remove_from_list(node_t *list, node_t *node) {
     return to_be_removed;
 }
 
-int ht_delete(ht_t *ht, node_t *node) {
+int ht_delete_node(ht_t *ht, node_t *node) {
     if (unlikely(ht == NULL || node == NULL)) {
 #ifdef DEBUG
         INFO("Passing null table (%p) or null data (%p)\n", ht, node);
@@ -372,12 +414,13 @@ int ht_delete(ht_t *ht, node_t *node) {
     }
     // grab the lock
     ht_t *old_ht;
-    spin_lock(&ht->lock);
+    size_t index = __ht_index(node);
+    spin_lock(&ht->lock[index]);
     // get the current hash table
-    old_ht = rcu_dereference_protected(ht, lockdep_is_held(&ht->lock));
+    old_ht = rcu_dereference_protected(ht, lockdep_is_held(&ht->lock[index]));
     *new_ht = *old_ht;
     // now we are safe to modify the hash table
-    size_t index = _ht_index(node);
+    //size_t index = __ht_index(node);
     node_t *removed = _ht_remove_from_list(new_ht->table[index], node);
     if (removed == NULL) {
         INFO("Data not found in the hash table\n");
@@ -387,7 +430,7 @@ int ht_delete(ht_t *ht, node_t *node) {
     kfree_rcu(removed, rcu);
     // update the hash table, then release the lock and synchronize the RCU
     rcu_assign_pointer(ht, new_ht);
-    spin_unlock(&ht->lock);
+    spin_unlock(&ht->lock[index]);
     synchronize_rcu();
     kfree(old_ht);
     return 0;
@@ -415,11 +458,11 @@ node_t* node_init(const char* path) {
         return NULL;
     }
     // check if the inserted path is valid and exists
-    if (!_is_path_valid(path)) {
+    if (!__is_path_valid(path)) {
         INFO("Invalid path %s\n", path);
         return NULL;
     }
-    if (!_path_exists(path)) {
+    if (!__path_exists(path)) {
         INFO("Path %s does not exist\n", path);
         return NULL;
     }
@@ -511,11 +554,11 @@ bool _is_path_valid(const char* path) {
         return false;
     }
 
-    // Check for trailing slash
-    if (strcmp(&path[len - 1], "/") == 0) {
-        INFO("Path ends with /\n");
-        return false;
-    }
+    // // Check for trailing slash
+    // if (strcmp(&path[len - 1], "/") == 0) {
+    //     INFO("Path ends with /\n");
+    //     return false;
+    // }
 
     // Check for double slashes
     if (strstr(path, "//") != NULL) {

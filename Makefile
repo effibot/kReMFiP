@@ -59,7 +59,7 @@ unload:
 else
 # make command invoked from the kernel build system.
 obj-m += $(MODNAME).o
-$(MODNAME)-y := kremfip_main.o include/rmfs.o include/utils.o include/ht_dllist.o
+$(MODNAME)-y := kremfip_main.o include/rmfs.o include/utils.o include/ht_dllist.o #include/rcu_example_list.o
 ifeq ($(DEBUG), 1)
 ccflags-y += -DDEBUG
 endif

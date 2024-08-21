@@ -32,6 +32,10 @@ static int __init kremfip_init(void) {
          printk(KERN_ERR "Failed to initialize the reference monitor\n");
          return -ENOMEM;
      }
+    for(int i=0; i < HT_SIZE; i++){
+        printk("lock %d status: %d\n", i, spin_is_locked(&rm_p->ht->lock[i]));
+    }
+
     INFO("adding the file to the hash table");
     // simulate the addition of a file to the hash table
     char *path = "/home/effi/file.txt";
@@ -41,45 +45,49 @@ static int __init kremfip_init(void) {
         return -ENOMEM;
     }
     printk("key: %lu\n", node->key);
-    int ret = ht_insert(rm_p->ht, node);
+    int ret = ht_insert_node(rm_p->ht, node);
     if (unlikely(ret != 0)) {
         printk(KERN_ERR "Failed to insert the node in the hash table\n");
         return -ENOMEM;
     }
     ht_print(rm_p->ht);
-    // INFO("adding a second file to the hash table");
+    for(int i=0; i < HT_SIZE; i++){
+        printk("lock %d status: %d\n", i, spin_is_locked(&rm_p->ht->lock[i]));
+    }
+
+     INFO("adding a second file to the hash table");
     // simulate the addition of a second file to the hash table
-    // char *path2 = "/home/effi/file2.txt";
-    /*node_t *node2 = node_init(path2);
+     char *path2 = "/home/effi/file2.txt";
+    node_t *node2 = node_init(path2);
     if (unlikely(node2 == NULL)) {
         printk(KERN_ERR "Failed to allocate memory for the node\n");
         return -ENOMEM;
 
     }
     printk("key: %lu\n", node2->key);
-    ret = ht_insert(rm_p->ht, node2);
+    ret = ht_insert_node(rm_p->ht, node2);
     if (unlikely(ret != 0)) {
         printk(KERN_ERR "Failed to insert the node in the hash table\n");
         return -ENOMEM;
     }
     ht_print(rm_p->ht);
-    */
-    INFO("searching for the first file in the hash table");
-    // simulate the search of the first file in the hash table
-    node_t *found = ht_lookup(rm_p->ht, node);
-    if (unlikely(found == NULL)) {
-        printk(KERN_ERR "Failed to find the node in the hash table\n");
-        return -ENOMEM;
-    }
-    printk("found: %s with key %lu\n", found->path, found->key);
-    INFO("remove the first file from the hash table");
-    // simulate the removal of the first file from the hash table
-    ret = ht_delete(rm_p->ht, node);
-    if (unlikely(ret != 0)) {
-        printk(KERN_ERR "Failed to delete the node from the hash table\n");
-        return -ENOMEM;
-    }
-    ht_print(rm_p->ht);
+
+    // INFO("searching for the first file in the hash table");
+    // // simulate the search of the first file in the hash table
+    // node_t *found = ht_lookup(rm_p->ht, node);
+    // if (unlikely(found == NULL)) {
+    //     printk(KERN_ERR "Failed to find the node in the hash table\n");
+    //     return -ENOMEM;
+    // }
+    // printk("found: %s with key %lu\n", found->path, found->key);
+    // INFO("remove the first file from the hash table");
+    // // simulate the removal of the first file from the hash table
+    // ret = ht_delete_node(rm_p->ht, node);
+    // if (unlikely(ret != 0)) {
+    //     printk(KERN_ERR "Failed to delete the node from the hash table\n");
+    //     return -ENOMEM;
+    // }
+    // ht_print(rm_p->ht);
     printk(KERN_INFO "kReMFiP module loaded\n");
     return 0;
 }
