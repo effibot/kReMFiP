@@ -48,6 +48,18 @@ printk("The size of the hash table is too big. We'll reduce to 32 bits\n");
 // define the size of the cache line for x86 architecture
 #define X86_CACHE_LINE_SIZE 64
 
+// macro to lock the whole table
+#define HT_LOCK_TABLE(ht) \
+    for (size_t i = 0; i < ht->size; i++) { \
+        spin_lock(&ht->lock[i]); \
+    }
+
+// macro to unlock the whole table
+#define HT_UNLOCK_TABLE(ht) \
+    for (size_t i = 0; i < ht->size; i++) { \
+        spin_unlock(&ht->lock[i]); \
+    }
+
 // the node of the doubly linked list
 typedef struct _ht_dllist_node_t {
     char *path; // path of the file - eg /home/user/file.txt
@@ -58,13 +70,14 @@ typedef struct _ht_dllist_node_t {
 
 // the hash table wich nodes are the heads of the linked lists
 typedef struct _ht_t {
-    node_t **table; // array of pointers to the heads of the linked lists
+    node_t __rcu **table; // array of pointers to the heads of the linked lists
     size_t size; // size of the hash table
     spinlock_t *lock; // spinlock array to protect the hash table buckets
 } __attribute__ ((aligned(X86_CACHE_LINE_SIZE))) ht_t;
 
 
 // define function prototypes
+node_t* ht_lookup(ht_t *ht, size_t *key_p);
 ht_t* ht_create(size_t size);
 int ht_destroy(ht_t *ht);
 int ht_insert_node(ht_t *ht, node_t *node);
@@ -72,12 +85,10 @@ int ht_delete_node(ht_t *ht, node_t *node);
 size_t* ht_count(ht_t *ht);
 size_t ht_get_count_at(ht_t *ht, size_t index);
 void ht_print(ht_t *ht);
-ht_t* ht_get_instance(void);
-node_t* ht_lookup(ht_t *ht, node_t *node);
 node_t* node_init(const char* path);
 
 // define the hash function
-size_t hash_node(node_t *node);
+size_t hash_key(size_t key);
 
 
 #endif //HT_DLLIST_H
