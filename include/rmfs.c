@@ -98,7 +98,7 @@ void rm_free(rm_t *rm) {
 		return;
 	}
 	// free the hash table
-	// ht_destroy(rm->ht);
+	ht_destroy(rm->ht);
 	// free the reference monitor
 	kfree(rm);
 }

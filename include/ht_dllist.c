@@ -169,33 +169,38 @@ static void __node_reclaim_callback(struct rcu_head *rcu) {
     kfree(node);
 }
 
-// int ht_destroy(ht_t *ht) {
-// #ifdef DEBUG
-//     INFO("Destroying hash table\n");
-// #endif
-//     // free the memory allocated for the hash table
-//     ht_t *new_ht = kzalloc(sizeof(new_ht), GFP_KERNEL);
-//     if (unlikely(new_ht == NULL)) {
-//         INFO("Failed to allocate memory for new hash table\n");
-//         return -ENOMEM;
-//     }
-//     ht_t *old_ht;
-//     for (size_t i = 0; i < HT_SIZE; i++) {
-//         spin_lock(&ht->lock[i]);
-//         old_ht = rcu_dereference_protected(ht, lockdep_is_held(&ht->lock[i]));
-//
-//         *new_ht = *old_ht;
-//         // free the memory allocated for the heads of the lists
-//         //__ht_release_table(new_ht->table);
-//
-//         rcu_assign_pointer(ht, new_ht);
-//         spin_unlock(&ht->lock[i]);
-//         synchronize_rcu();
-//         kfree(old_ht);
-//         kfree(ht);
-//     }
-//     return 0;
-// }
+int ht_destroy(ht_t *ht) {
+#ifdef DEBUG
+    INFO("Destroying hash table\n");
+#endif
+    // check if the hash table is null
+    if (unlikely(ht == NULL)) {
+        INFO("Passing null table (%p)\n", ht);
+        return -EINVAL;
+    }
+    // wait for all the readers to finish
+    synchronize_rcu();
+    // lock the whole table - if a writer is in the critical section, we need to wait
+    HT_LOCK_TABLE(ht);
+    // free the memory allocated for the heads of the lists
+    for (size_t i = 0; i < HT_SIZE; i++) {
+        node_t *tmp_head = rcu_dereference_protected(ht->table[i], lockdep_is_held(&ht->lock[i]));
+        // free the memory allocated for the elements in the list
+        node_t *tmp_node, *tmp_next;
+        list_for_each_entry_safe(tmp_node, tmp_next, &tmp_head->list, list) {
+            list_del_rcu(&tmp_node->list);
+            call_rcu(&tmp_node->rcu, __node_reclaim_callback);
+        }
+        kfree(tmp_head);
+    }
+    // release the lock
+    HT_UNLOCK_TABLE(ht);
+    // free the memory allocated for the spinlocks
+    kfree(ht->lock);
+    // free the memory allocated for the hash table
+    kfree(ht);
+    return 0;
+}
 
 
 /**
@@ -361,7 +366,13 @@ size_t __gen_key(const char* path) {
         return -EINVAL;
     }
     // just call the kernel hash function
-    return hash_ptr(path, HT_BIT_KEY_SIZE);
+    //return full_name_hash(NULL, path, strlen(path));
+    // convert the pathname to a number
+    size_t key = 0;
+    for (size_t i = 0; i < strlen(path); i++) {
+        key += path[i];
+    }
+    return key;
 }
 
 /**
