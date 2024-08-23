@@ -10,13 +10,13 @@
  *
  * @return A random unsigned int between 1 and 32.
  */
-const int rnd_id(void) {
+unsigned int rnd_id(void) {
     unsigned random_ticket;
     get_random_bytes(&random_ticket, sizeof(random_ticket));
     return 1u + (random_ticket % 32u);
 }
 
-char *get_state_str(rm_state_t state) {
+char *state_to_str(rm_state_t state) {
     switch (state) {
         case OFF:
             return "OFF";
@@ -27,23 +27,26 @@ char *get_state_str(rm_state_t state) {
         case REC_ON:
             return "REC_ON";
         default:
+            INFO("Requested unknown state %d", state);
             return "UNKNOWN";
     }
 }
 
-rm_state_t get_state_from_str(const char *state_str) {
-    // if the content of the string is an int then we can easily check if it's in the range [0,3]
-    int state_int;
-    rm_state_t state;
-    if (kstrtoint(state_str, 10, &state_int)) {
-        return -EINVAL;
+rm_state_t str_to_state(const char *state_str) {
+    if (strcmp(state_str, "OFF") == 0) {
+        return OFF;
     }
-    if (is_state_valid(state_int)) {
-        state = state_int;
-    } else {
-        state = -EINVAL;
+    if (strcmp(state_str, "ON") == 0) {
+        return ON;
     }
-    return state;
+    if (strcmp(state_str, "REC_OFF") == 0) {
+        return REC_OFF;
+    }
+    if (strcmp(state_str, "REC_ON") == 0) {
+        return REC_ON;
+    }
+    INFO("Requested unknown state %s", state_str);
+    return -EINVAL;
 }
 
 /**

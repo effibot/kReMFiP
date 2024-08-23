@@ -109,3 +109,27 @@ The reference monitor module can be tested by writing test cases that exercise t
 The test cases should be run on a system with the reference monitor module loaded.
 - The test cases should verify that the reference monitor correctly allows or denies the operations based on the list of protected paths.
 
+
+
+
+# possible data structure for protected paths
+
+rotated bynary tree
+- root node is the root of the tree '/'
+- each node is a portion of the path
+- each node has a list of children
+- 
+Root
+|
+p1 ----- p2 ----- p4 ----- p6  
+|        |         |       |
+c1       p3       c4       p7
+|                 |
+c2 - c3           c5
+
+
+RCU kernel doc
+https://www.kernel.org/doc/html/next/RCU/whatisRCU.html#id11
+
+userspace rcu
+https://github.com/urcu/userspace-rcu
