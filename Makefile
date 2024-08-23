@@ -34,13 +34,13 @@ ifeq ($(KERNELRELEASE),)
 .PHONY: all install clean uninstall load unload
 
 all:
-	$(MAKE) -C $(KDIR) M=$(PWD) modules
+	$(MAKE) -C $(KDIR) M=$(PWD) modules EXTRA_CFLAGS="-Wno-implicit-fallthrough"
 
 clean:
 	$(MAKE) -C /lib/modules/$(shell uname -r)/build M=$(PWD) clean
 
 install:
-	$(MAKE) -C /lib/modules/$(shell uname -r)/build M=$(PWD) modules_install
+	$(MAKE) -C /lib/modules/$(shell uname -r)/build M=$(PWD) modules_install EXTRA_CFLAGS="-Wno-implicit-fallthrough"
 	ln -s /lib/modules/$(shell uname -r)/extra/$(MODNAME).ko /lib/modules/$(shell uname -r)
 	depmod -a
 
@@ -59,7 +59,7 @@ unload:
 else
 # make command invoked from the kernel build system.
 obj-m += $(MODNAME).o
-$(MODNAME)-y := kremfip_main.o include/rmfs.o include/utils.o include/ht_dllist.o #include/rcu_example_list.o
+$(MODNAME)-y := kremfip_main.o include/rmfs.o include/utils.o include/ht_dllist.o utils/murmurhash3.o
 ifeq ($(DEBUG), 1)
 ccflags-y += -DDEBUG
 endif

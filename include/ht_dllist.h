@@ -24,7 +24,7 @@
 #include <linux/spinlock.h>
 
 #ifndef HT_BIT_SIZE
-#define HT_BIT_SIZE 2 // default size of the hash table
+#define HT_BIT_SIZE 4 // default size of the hash table
 #endif
 
 #define HT_BIT_KEY_SIZE 32 // default size of the key -- maximum amount of bits to (hopefully) avoid collisions
@@ -36,9 +36,13 @@ printk("The size of the hash table is too big. We'll reduce to 32 bits\n");
 #define HT_BIT_SIZE 32
 #endif
 
-
 #ifndef HT_SIZE
 #define HT_SIZE (1 << HT_BIT_SIZE) // this is 2^HT_BIT_SIZE
+#endif
+
+// take a seed for the hash function - chosen at compile time
+#ifndef HT_SEED
+#define HT_SEED 0
 #endif
 
 #ifndef DEBUG
@@ -63,7 +67,7 @@ printk("The size of the hash table is too big. We'll reduce to 32 bits\n");
 // the node of the doubly linked list
 typedef struct _ht_dllist_node_t {
     char *path; // path of the file - eg /home/user/file.txt
-    size_t key; // key of the element - obtained as a hash of the path
+    uint64_t key; // key of the element - obtained as a hash of the path
     struct list_head list; // kernel-list: provides pointers to next and previous element
     struct rcu_head rcu; // used for RCU
 } __attribute__ ((aligned(X86_CACHE_LINE_SIZE))) node_t;
@@ -77,7 +81,7 @@ typedef struct _ht_t {
 
 
 // define function prototypes
-node_t* ht_lookup(ht_t *ht, size_t *key_p);
+node_t* ht_lookup(ht_t *ht, uint64_t key);
 ht_t* ht_create(size_t size);
 int ht_destroy(ht_t *ht);
 int ht_insert_node(ht_t *ht, node_t *node);
@@ -88,7 +92,7 @@ void ht_print(ht_t *ht);
 node_t* node_init(const char* path);
 
 // define the hash function
-size_t hash_key(size_t key);
+uint64_t compute_hash(const char *key);
 
 
 #endif //HT_DLLIST_H

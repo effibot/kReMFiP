@@ -29,7 +29,7 @@
 
 #include "include/rmfs.h"
 
-// #define TEST
+#define TEST
 
 rm_t *rm_p = NULL;
 
@@ -68,7 +68,7 @@ static int write_func(void *arg) {
                     printk(KERN_ERR "Failed to allocate memory for the node\n");
                     goto out;
                 }
-                printk("key: %lu\n", node->key);
+                printk("key: %llu\n", node->key);
                 ret = ht_insert_node(rm_p->ht, node);
                 if (unlikely(ret != 0)) {
                     printk(KERN_ERR "Failed to insert the node in the hash table\n");

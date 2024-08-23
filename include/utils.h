@@ -6,7 +6,6 @@
 #define UTILS_H
 
 #include <linux/fs.h>
-#include <linux/err.h>
 
 
 #include "rmfs.h"

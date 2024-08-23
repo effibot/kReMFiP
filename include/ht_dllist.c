@@ -12,7 +12,7 @@
 #include "utils.h"
 
 #include "ht_dllist.h"
-
+#include "../utils/murmurhash3.h"
 
 
 
@@ -26,8 +26,7 @@ void __ht_print_list(node_t *list); // print the elements in the given list
 size_t __ht_count_list(node_t *list); // count the number of elements in the given list
 
 // RCU independent functions
-size_t __gen_key(const char* path); // generate a key from the pathname
-size_t __ht_index(node_t *node);    // get the bucket were the node should be in the hash table
+size_t __ht_index(uint64_t key);    // get the bucket were the node should be in the hash table
 bool __is_path_valid(const char* path); // check if the path is valid
 bool __path_exists(const char* path);   // check if the path exists in the file system
 
@@ -84,18 +83,18 @@ ret_null:
  * @name ht_lookup
  * @brief Look for the data in the hash table.
  * @param ht - the hash table where the data will be searched
- * @param key_p - the key of the data to be searched
+ * @param key - the key of the data to be searched
  * @return the data if found, NULL otherwise
  */
-node_t* ht_lookup(ht_t *ht, size_t *key_p) {
-    if(unlikely(ht == NULL || key_p == 0)) {
+node_t* ht_lookup(ht_t *ht, const uint64_t key) {
+    if(unlikely(ht == NULL || key <= 0)) {
 #ifdef DEBUG
-        INFO("Passing null table (%p) or invalid key (%lu)\n", ht, *key_p);
+        INFO("Passing null table (%p) or invalid key (%llu)\n", ht, key);
 #endif
         goto not_found;
     }
     // find the bucket where the data should be
-    const size_t bkt = hash_key(*key_p) % HT_SIZE;
+    const size_t bkt = __ht_index(key);
     // define the loop cursor
     node_t *tmp_node;
     /*[RCU] - Read Critical Section
@@ -108,18 +107,10 @@ node_t* ht_lookup(ht_t *ht, size_t *key_p) {
     // traverse the list in RCU way
     list_for_each_entry_rcu(tmp_node, &tmp_head->list, list) {
         // compare the key of the node with the key of the data
-        if (tmp_node->key == *key_p) {
-            // the key is the same, be sure that the path is the same
-            const node_t *node = container_of(key_p, node_t, key);
-            if(unlikely(node == NULL)) {
-                INFO("Failed to get the node from the key\n");
-                goto not_found;
-            }
-            if (strcmp(tmp_node->path, node->path) != 0) {
-                // the path is different, so we have a collision
-                INFO("Collision detected for key %lu\n", node->key);
-                // TODO: handle the collision
-            }
+        // we are assuming that we cannot have collisions given by two
+        // different keys with the same value
+        if (tmp_node->key == key) {
+            INFO("Data (with key %llu) found in the hash table\n", key);
             rcu_read_unlock();
             return tmp_node;
         }
@@ -144,12 +135,12 @@ int ht_insert_node(ht_t* ht, node_t *node) {
         return -EINVAL;
     }
     // check if the data is already in the hash table - read critical section
-    if (ht_lookup(ht, &node->key) != NULL) {
+    if (ht_lookup(ht, node->key) != NULL) {
         INFO("Data already in the hash table\n");
         return -EEXIST;
     }
     // find the bucket where the data should be
-    const size_t bkt = __ht_index(node);
+    const size_t bkt = __ht_index(node->key);
     // grab the lock for the bucket where the data should be
     spin_lock(&ht->lock[bkt]);
     // insert the data at the head list
@@ -164,7 +155,7 @@ int ht_insert_node(ht_t* ht, node_t *node) {
 static void __node_reclaim_callback(struct rcu_head *rcu) {
     const node_t *node = container_of(rcu, node_t, rcu);
 #ifdef DEBUG
-    INFO("Callback free for node with key %lu. Preempt count: %d\n", node->key, preempt_count());
+    INFO("Callback free for node with key %llu. Preempt count: %d\n", node->key, preempt_count());
 #endif
     kfree(node);
 }
@@ -220,7 +211,7 @@ int ht_delete_node(ht_t *ht, node_t *node) {
     // lock the whole table to be sure that the data is not deleted while we are looking for it
     HT_LOCK_TABLE(ht);
     // check if the data is in the hash table
-    node_t *removed = ht_lookup(ht, &node->key);
+    node_t *removed = ht_lookup(ht, node->key);
     if (removed == NULL) {
         // someone else deleted the data
         INFO("Data not found in the hash table\n");
@@ -339,7 +330,7 @@ void __ht_print_list(node_t *list) {
     node_t *tmp_head;
     list_for_each_entry_rcu(tmp_head, &list->list, list) {
         // print [key::path]-> for each element in the list
-        printk(KERN_CONT "[%lu::%s]-->", tmp_head->key, tmp_head->path);
+        printk(KERN_CONT "[%llu::%s]-->", tmp_head->key, tmp_head->path);
     }
     // print a newline at the end of the list
     printk("\n");
@@ -350,45 +341,19 @@ void __ht_print_list(node_t *list) {
  ****************************************************/
 
 /**
- * @name __gen_key
- * @brief Generate a key from the pathname. We use kernel hash function to generate
- * a key for the data. Doing so, we have high probability to have unique keys for
- * different pathname (like the stars in the sky), but we can still have collisions for same pathname.
- * In this way, we'll be able to search for specific pathname just looking for the right key.
- * @param path - the pathname
- * @return the key
- */
-size_t __gen_key(const char* path) {
-    if (unlikely(path == NULL)) {
-#ifdef DEBUG
-        INFO("Passing null pathname (%p)\n", path);
-#endif
-        return -EINVAL;
-    }
-    // just call the kernel hash function
-    //return full_name_hash(NULL, path, strlen(path));
-    // convert the pathname to a number
-    size_t key = 0;
-    for (size_t i = 0; i < strlen(path); i++) {
-        key += path[i];
-    }
-    return key;
-}
-
-/**
  * @name __ht_index
  * @brief Get the bucket where the node should be in the hash table.
- * @param node - the node to be hashed
+ * @param key - the key of the node, calculated as a hash of the path
  * @return the index of the bucket
  */
-size_t __ht_index(node_t *node) {
-    if(unlikely(node == NULL)) {
+size_t __ht_index(uint64_t key) {
+    if(unlikely(key == 0)) {
 #ifdef DEBUG
-        INFO("Passing null node (%p)\n", node);
+        INFO("Passing invalid key (%llu)\n", key);
 #endif
         return -EINVAL;
     }
-    return hash_key(node->key) % HT_SIZE;
+    return key % HT_SIZE;
 }
 
 /**
@@ -397,15 +362,17 @@ size_t __ht_index(node_t *node) {
  * @param key - the key of the node
  * @return the hash
  */
-size_t hash_key(const size_t key) {
-    if(unlikely(key == 0)) {
+uint64_t compute_hash(const char *key) {
+    if(unlikely(key == NULL)) {
 #ifdef DEBUG
-        INFO("Passing invalid key (%lu)\n", key);
+        INFO("Passing invalid key (%s)\n", key);
 #endif
         return -EINVAL;
     }
-    // compute the hash -- size_t is an alias for unsigned long
-    return hash_long(key, HT_BIT_SIZE);
+    //return murmur3_x86_32(key, strlen(key), HT_SEED);
+    uint64_t *digest = kzalloc(2*sizeof(digest), GFP_KERNEL);
+    digest = murmur3_x64_128(key, strlen(key), HT_SEED);
+    return digest[0] ^ digest[1];
 
 }
 
@@ -518,7 +485,7 @@ node_t* node_init(const char* path) {
         return NULL;
     }
     // generate the key
-    node->key = __gen_key(path);
+    node->key = compute_hash(node->path);
     // initialize pointers for new node
     INIT_LIST_HEAD_RCU(&node->list);
     return node;
