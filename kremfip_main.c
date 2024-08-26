@@ -29,10 +29,11 @@
 
 #include "include/rmfs.h"
 
-#define TEST
+//#define TEST
 
 rm_t *rm_p = NULL;
 
+#ifdef TEST
 #define RD_THREAD 1
 #define WR_THREAD 2
 #define THREAD_NAME 16
@@ -98,7 +99,7 @@ static int write_func(void *arg) {
     }
     return 0;
 }
-
+#endif
 
 static int __init kremfip_init(void) {
     rm_p = rm_init();

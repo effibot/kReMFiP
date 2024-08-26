@@ -16,7 +16,7 @@ unsigned int rnd_id(void) {
     return 1u + (random_ticket % 32u);
 }
 
-char *state_to_str(rm_state_t state) {
+char *state_to_str(const rm_state_t state) {
     switch (state) {
         case OFF:
             return "OFF";

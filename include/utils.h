@@ -6,7 +6,9 @@
 #define UTILS_H
 
 #include <linux/fs.h>
-
+#ifndef MODNAME
+#define MODNAME "kremfip_module"
+#endif
 
 #include "rmfs.h"
 
