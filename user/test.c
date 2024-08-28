@@ -5,10 +5,14 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
+#include <sys/types.h>
+#include <stdint.h>
 
 #include "test.h"
 
 struct_A x, *x_ptr;
+
 
 int main(int argc, char **argv){
 

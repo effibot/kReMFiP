@@ -59,3 +59,17 @@ bool is_state_valid(rm_state_t state) {
     return state == OFF || state == ON || state == REC_OFF || state == REC_ON;
     //return state >= OFF && state <= REC_ON;
 }
+
+char * hex_to_str(const unsigned char *hex, const size_t len) {
+    // be sure the hex string is not empty
+    if (strlen(hex) == 0) {
+        return NULL;
+    }
+    // allocate the string -- 2 hex characters for each byte
+    char *str = kmalloc(len * 2 + 1, GFP_KERNEL);
+    for (size_t i = 0; i < len; i++) {
+        sprintf(&str[i*2], "%02x", hex[i]);
+    }
+    str[len * 2] = '\0'; // null terminate the string
+    return str;
+}

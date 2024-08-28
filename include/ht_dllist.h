@@ -24,7 +24,7 @@
 #include <linux/spinlock.h>
 
 #ifndef HT_BIT_SIZE
-#define HT_BIT_SIZE 4 // default size of the hash table
+#define HT_BIT_SIZE 2 // default size of the hash table
 #endif
 
 #define HT_BIT_KEY_SIZE 32 // default size of the key -- maximum amount of bits to (hopefully) avoid collisions

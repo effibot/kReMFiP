@@ -15,6 +15,7 @@
 #define RM_PWD_MIN_LEN 8
 #define RM_PWD_SALT_LEN 16
 #define RM_PWD_HASH_LEN 32
+#define RM_PWD_SALTED_HASH_LEN (RM_PWD_SALT_LEN + RM_PWD_HASH_LEN)
 
 
 
@@ -24,8 +25,6 @@ typedef enum _rm_state_t {
     REC_OFF = 2,
     REC_ON = 3,
 } rm_state_t;
-
-// Define the attribute structure for reference monitor sysfs
 
 typedef struct _rm_t {
     const char *name;                 // Name of the reference monitor
@@ -38,10 +37,10 @@ typedef struct _rm_t {
     //TODO: file system
     struct workqueue_struct *wq;        // Workqueue for the reference monitor
     struct work_struct work;            // Work structure for the reference monitor
-    struct kset *rm_kset;                  // Kset for the reference monitor
+    struct kobject *kobj;               // Kobject for the reference monitor
 } rm_t;
 
-
+#define to_monitor_from_kobj(kobj) container_of(kobj, rm_t, kobj)
 
 
 
