@@ -16,18 +16,18 @@
  *
  */
 
-
 #ifndef HT_DLLIST_H
 #define HT_DLLIST_H
 
-#include <linux/types.h>
 #include <linux/spinlock.h>
+#include <linux/types.h>
 
 #ifndef HT_BIT_SIZE
 #define HT_BIT_SIZE 2 // default size of the hash table
 #endif
 
-#define HT_BIT_KEY_SIZE 32 // default size of the key -- maximum amount of bits to (hopefully) avoid collisions
+#define HT_BIT_KEY_SIZE \
+	32 // default size of the key -- maximum amount of bits to (hopefully) avoid collisions
 
 // be sure that the size of the hash table is under the maximum key size we can have
 #if HT_BIT_SIZE > 32
@@ -53,47 +53,46 @@ printk("The size of the hash table is too big. We'll reduce to 32 bits\n");
 #define X86_CACHE_LINE_SIZE 64
 
 // macro to lock the whole table
-#define HT_LOCK_TABLE(ht) \
-    for (size_t i = 0; i < ht->size; i++) { \
-        spin_lock(&ht->lock[i]); \
-    }
+#define HT_LOCK_TABLE(ht)                   \
+	for (size_t i = 0; i < ht->size; i++) { \
+		spin_lock(&ht->lock[i]);            \
+	}
 
 // macro to unlock the whole table
-#define HT_UNLOCK_TABLE(ht) \
-    for (size_t i = 0; i < ht->size; i++) { \
-        spin_unlock(&ht->lock[i]); \
-    }
+#define HT_UNLOCK_TABLE(ht)                 \
+	for (size_t i = 0; i < ht->size; i++) { \
+		spin_unlock(&ht->lock[i]);          \
+	}
 
 // the node of the doubly linked list
 typedef struct _ht_dllist_node_t {
-    char *path; // path of the file - eg /home/user/file.txt
-    uint64_t key; // key of the element - obtained as a hash of the path
-    struct list_head list; // kernel-list: provides pointers to next and previous element
-    struct rcu_head rcu; // used for RCU
-} __attribute__ ((aligned(X86_CACHE_LINE_SIZE))) node_t;
+	char *path; // path of the file - eg /home/user/file.txt
+	uint64_t key; // key of the element - obtained as a hash of the path
+	struct list_head
+		list; // kernel-list: provides pointers to next and previous element
+	struct rcu_head rcu; // used for RCU
+} __attribute__((aligned(X86_CACHE_LINE_SIZE))) node_t;
 
 // the hash table wich nodes are the heads of the linked lists
 typedef struct _ht_t {
-    node_t __rcu **table; // array of pointers to the heads of the linked lists
-    size_t size; // size of the hash table
-    spinlock_t *lock; // spinlock array to protect the hash table buckets
-} __attribute__ ((aligned(X86_CACHE_LINE_SIZE))) ht_t;
-
+	node_t __rcu **table; // array of pointers to the heads of the linked lists
+	size_t size; // size of the hash table
+	spinlock_t *lock; // spinlock array to protect the hash table buckets
+} __attribute__((aligned(X86_CACHE_LINE_SIZE))) ht_t;
 
 // define function prototypes
-node_t* ht_lookup(ht_t *ht, uint64_t key);
-ht_t* ht_create(size_t size);
+node_t *ht_lookup(ht_t *ht, uint64_t key);
+ht_t *ht_create(size_t size);
 int ht_destroy(ht_t *ht);
 int ht_insert_node(ht_t *ht, node_t *node);
 int ht_delete_node(ht_t *ht, node_t *node);
-size_t* ht_count(ht_t *ht);
+size_t *ht_count(ht_t *ht);
 size_t ht_get_count_at(ht_t *ht, size_t index);
 void ht_print(ht_t *ht);
-node_t* node_init(const char* path);
+node_t *node_init(const char *path);
 
 // define the hash function
 uint64_t compute_hash(const char *key);
-
 
 #endif //HT_DLLIST_H
 

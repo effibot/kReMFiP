@@ -11,24 +11,25 @@
  *
  */
 
-
-#include <linux/module.h>
-#include <linux/init.h>
-#include <linux/kernel.h>
-#include <linux/fs.h>
-#include <linux/uaccess.h>
-#include <linux/sysfs.h>
-#include <linux/slab.h>
-#include <linux/crypto.h>
-#include <linux/workqueue.h>
-#include <linux/string.h>
-#include <linux/kobject.h>
-#include <crypto/hash.h>
-#include <crypto/sha256_base.h>
-#include <linux/memory.h>   // For secure memory zeroing
-
 #include "rmfs.h"
 #include "utils.h"
+#include <crypto/hash.h>
+#include <crypto/sha256_base.h>
+#include <linux/crypto.h>
+#include <linux/fdtable.h>
+#include <linux/file.h>
+#include <linux/fs.h>
+#include <linux/init.h>
+#include <linux/kernel.h>
+#include <linux/kobject.h>
+#include <linux/memory.h> // For secure memory zeroing
+#include <linux/module.h>
+#include <linux/slab.h>
+#include <linux/string.h>
+#include <linux/sysfs.h>
+#include <linux/uaccess.h>
+#include <linux/vfs.h>
+#include <linux/workqueue.h>
 
 /*********************************
  * Internal functions prototypes *
@@ -36,24 +37,23 @@
 // internal state settings to make checks without leaking information in other files
 int __set_state(rm_t *rm, rm_state_t state);
 // internal password hashing function
-static int __rm_hash_pwd(const char* pwd,  const u8 *pwd_salt, u8 *pwd_hash);
+static int __rm_hash_pwd(const char *pwd, const u8 *pwd_salt, u8 *pwd_hash);
 // internal password verification function
-static bool __verify_pwd(const char* input_str);
-static void __prompt_for_pwd(void);
+static bool __verify_pwd(const char *input_str);
 // dedicated sysfs file for the password hash
-static ssize_t module_pwd_hash_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf);
+static ssize_t rm_pwd_hash_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf);
 
 /*************************************************
  * Preliminary setup for the password management *
  *************************************************/
 static char *module_pwd = NULL; // default value
 static u8 pwd_salt[RM_PWD_SALT_LEN];
-static u8 module_pwd_hash[RM_PWD_HASH_LEN];
-static char* module_crypto_algo = "sha256"; // default value
+static u8 rm_pwd_hash[RM_PWD_HASH_LEN];
+static char *module_crypto_algo = "sha256"; // default value
 module_param(module_pwd, charp, 0000);
 MODULE_PARM_DESC(module_pwd, "The password for the reference monitor");
 
-static struct kobj_attribute hash_pwd_attr = __ATTR_RO(module_pwd_hash);
+static struct kobj_attribute hash_pwd_attr = __ATTR_RO(rm_pwd_hash);
 static struct attribute *attrs[] = {
 	&hash_pwd_attr.attr,
 	NULL,
@@ -95,37 +95,28 @@ rm_t *rm_init(void) {
 	// initialize the salt
 	get_random_bytes(pwd_salt, RM_PWD_SALT_LEN);
 	// hash the password with the salt
-	if (__rm_hash_pwd(module_pwd, pwd_salt, module_pwd_hash) != 0) {
+	if (__rm_hash_pwd(module_pwd, pwd_salt, rm_pwd_hash) != 0) {
 		WARNING("Failed to hash the password");
 		kfree(rm);
 		return NULL;
 	}
 
 	// store the password hash in the dedicated sysfs file
-	rm->kobj = kobject_create_and_add("module_pwd_hash", &THIS_MODULE->mkobj.kobj);
-	if(rm->kobj == NULL) {
+	// we crate a subfolder under /sys/module/kremfip
+	rm->kobj = kobject_create_and_add("rm_pwd_hash", &THIS_MODULE->mkobj.kobj);
+	if (rm->kobj == NULL) {
 		WARNING("Failed to create the sysfs file for the password hash");
 		kfree(rm);
 		return NULL;
 	}
 	// create the file creating the group
-	if(sysfs_create_group(rm->kobj, &attr_group)) {
+	if (sysfs_create_group(rm->kobj, &attr_group)) {
 		WARNING("Failed to create the sysfs group for the password hash");
 		kobject_put(rm->kobj);
 		kfree(rm);
 		return NULL;
 	}
 
-#ifdef DEBUG
-	// print the password hash
-	printk(KERN_INFO "Password hash: %s\n", hex_to_str(module_pwd_hash, RM_PWD_HASH_LEN));
-	// check if the password is correct
-	if (__verify_pwd(module_pwd)) {
-		printk(KERN_INFO "Password is correct\n");
-	} else {
-		printk(KERN_INFO "Password is incorrect\n");
-	}
-#endif
 	INFO("Hash table initialized");
 	return rm;
 }
@@ -179,7 +170,6 @@ void rm_free(const rm_t *rm) {
 	kfree(rm);
 }
 
-
 /*************************************
  * Internal function implementations *
  *************************************/
@@ -204,8 +194,8 @@ int __set_state(rm_t *rm, const rm_state_t state) {
 
 	return 0;
 
-	error:
-		return -EINVAL;
+error:
+	return -EINVAL;
 }
 
 /**
@@ -222,8 +212,7 @@ int __set_state(rm_t *rm, const rm_state_t state) {
  * @return int 0 if the hash is computed successfully, an error code otherwise
  */
 
-static int __rm_hash_pwd(const char* pwd, const u8 *pwd_salt, u8 *pwd_hash) {
-
+static int __rm_hash_pwd(const char *pwd, const u8 *pwd_salt, u8 *pwd_hash) {
 	// The password is set at the module load time. Checking for non-NULL value just to be sure.
 	if (unlikely(pwd == NULL || strlen(pwd) == 0)) {
 		INFO("Password is not set");
@@ -239,7 +228,8 @@ static int __rm_hash_pwd(const char* pwd, const u8 *pwd_salt, u8 *pwd_hash) {
 	}
 	// Add the salt at the head because is proven to be more secure
 	memcpy(salted_pwd, pwd_salt, RM_PWD_SALT_LEN);
-	memcpy(salted_pwd + RM_PWD_SALT_LEN, pwd, strlen(pwd));  // pointers arithmetic
+	memcpy(salted_pwd + RM_PWD_SALT_LEN, pwd,
+		   strlen(pwd)); // pointers arithmetic
 
 	// allocate memory for the hash - we use the SHA256 algorithm because yes
 	struct crypto_shash *tfm = crypto_alloc_shash(module_crypto_algo, 0, 0);
@@ -277,9 +267,12 @@ static int __rm_hash_pwd(const char* pwd, const u8 *pwd_salt, u8 *pwd_hash) {
 	ret = crypto_shash_final(desc, pwd_hash);
 	if (ret) {
 		printk(KERN_ERR "Hash finalization failed\n");
-	} else {
+	}
+#ifdef DEBUG
+	else {
 		printk(KERN_INFO "Password hash with salt computed successfully\n");
 	}
+#endif
 
 	// free the memory - we don't want to leak traces of the password
 out:
@@ -302,37 +295,48 @@ out:
  * @return false The hash of the input string does not match the stored hash
  */
 
-static bool __verify_pwd(const char* input_str) {
-	// be sure that the input string is not NULL
+static bool __verify_pwd(const char *input_str) {
+	// Ensure the input string is not NULL
 	if (IS_ERR_OR_NULL(input_str)) {
 		WARNING("Input string is NULL");
 		return false;
 	}
-	// we are not going to leak traces of the password in the kernel space
-	// so we hash the input string and compare it with the stored hash takend from the sysfs
+
+	// Hash the input string
 	u8 input_hash[RM_PWD_HASH_LEN];
 	if (__rm_hash_pwd(input_str, pwd_salt, input_hash)) {
 		WARNING("Failed to hash the input string");
 		return false;
 	}
-	printk("%s\n", hex_to_str(input_hash, RM_PWD_HASH_LEN));
-	// compare the hashes
-	if (memcmp(input_hash, module_pwd_hash, RM_PWD_HASH_LEN) == 0)
-		return true;
-	return false;
+
+	// Retrieve the stored hash from the sysfs
+	struct file *f = filp_open("/sys/module/kremfip/rm_pwd_hash/rm_pwd_hash", O_RDONLY, 0);
+	if (IS_ERR(f)) {
+		WARNING("Failed to open the sysfs file");
+		return false;
+	}
+
+	// Read the stored hash from the sysfs
+	char stored_hash[RM_PWD_HASH_LEN * 2 + 1] = { 0 };
+	const ssize_t bytes_read = kernel_read(f, stored_hash, RM_PWD_HASH_LEN * 2, &f->f_pos);
+	filp_close(f, NULL);
+
+	if (bytes_read < 0) {
+		WARNING("Failed to read the stored hash from the sysfs file");
+		return false;
+	}
+
+	// Compare the hashes
+	const bool cmp =
+		memcmp(hex_to_str(input_hash, RM_PWD_HASH_LEN), stored_hash, RM_PWD_HASH_LEN) == 0;
+
+	// Clean up the stored hash
+	memzero_explicit(stored_hash, sizeof(stored_hash));
+	memzero_explicit(input_hash, sizeof(input_hash));
+	kfree(stored_hash);
+	kfree(input_hash);
+	return cmp;
 }
-
-/**
- * @brief Prompt the user for the password
- *
- * This function prompts the user for the password and hashes it.
- * The hashed password is stored in the dedicated sysfs file.
- */
-
-static void __prompt_for_pwd(void) {
-
-}
-
 
 /**
  * @brief Show the password hash
@@ -344,9 +348,8 @@ static void __prompt_for_pwd(void) {
  * @param buf The buffer to store the password hash
  * @return ssize_t The number of bytes written
  */
-ssize_t module_pwd_hash_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf) {
+ssize_t rm_pwd_hash_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf) {
 	// just copy the password hash to the buffer as a null-terminated string
-	return snprintf(buf, RM_PWD_HASH_LEN*2+1, "%s", hex_to_str(module_pwd_hash, RM_PWD_HASH_LEN));
+	return snprintf(buf, RM_PWD_HASH_LEN * 2 + 1, "%s",
+					hex_to_str(rm_pwd_hash, RM_PWD_HASH_LEN));
 }
-
-
