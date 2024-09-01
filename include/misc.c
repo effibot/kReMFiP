@@ -1,5 +1,5 @@
 #include <linux/random.h>
-#include "utils.h"
+#include "misc.h"
 
 /**
  * @brief Generates a random ID.
@@ -27,7 +27,6 @@ char *state_to_str(const rm_state_t state) {
         case REC_ON:
             return "REC_ON";
         default:
-            INFO("Requested unknown state %d", state);
             return "UNKNOWN";
     }
 }
@@ -45,7 +44,6 @@ rm_state_t str_to_state(const char *state_str) {
     if (strcmp(state_str, "REC_ON") == 0) {
         return REC_ON;
     }
-    INFO("Requested unknown state %s", state_str);
     return -EINVAL;
 }
 
@@ -57,7 +55,6 @@ rm_state_t str_to_state(const char *state_str) {
  */
 bool is_state_valid(rm_state_t state) {
     return state == OFF || state == ON || state == REC_OFF || state == REC_ON;
-    //return state >= OFF && state <= REC_ON;
 }
 
 char * hex_to_str(const unsigned char *hex, const size_t len) {

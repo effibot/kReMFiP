@@ -22,12 +22,15 @@
 #include <linux/spinlock.h>
 #include <linux/types.h>
 
+// default size of the hash table
 #ifndef HT_BIT_SIZE
-#define HT_BIT_SIZE 2 // default size of the hash table
+#define HT_BIT_SIZE 2
 #endif
 
-#define HT_BIT_KEY_SIZE \
-	32 // default size of the key -- maximum amount of bits to (hopefully) avoid collisions
+// default size of the key -- maximum amount of bits to (hopefully) avoid collisions
+#ifndef HT_BIT_KEY_SIZE
+#define HT_BIT_KEY_SIZE 32
+#endif
 
 // be sure that the size of the hash table is under the maximum key size we can have
 #if HT_BIT_SIZE > 32
@@ -43,10 +46,6 @@ printk("The size of the hash table is too big. We'll reduce to 32 bits\n");
 // take a seed for the hash function - chosen at compile time
 #ifndef HT_SEED
 #define HT_SEED 0
-#endif
-
-#ifndef DEBUG
-#define DEBUG 1
 #endif
 
 // define the size of the cache line for x86 architecture

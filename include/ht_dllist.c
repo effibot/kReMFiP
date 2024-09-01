@@ -2,7 +2,7 @@
 // Created by effi on 13/08/24.
 //
 
-#include "utils.h"
+
 #include <linux/fs.h>
 #include <linux/hash.h>
 #include <linux/kernel.h>
@@ -13,6 +13,7 @@
 
 #include "../utils/murmurhash3.h"
 #include "ht_dllist.h"
+#include "misc.h"
 
 /* Internal API to manage the hash table - not exposed to the user.
  * The wrapper API, defined in ht_dllist.h, will call these functions,

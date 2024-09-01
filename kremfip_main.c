@@ -9,9 +9,6 @@
  *
  */
 
-#ifndef MODNAME
-#define MODNAME "kremfip_module"
-#endif
 
 #define EXPORT_SYMTAB
 
@@ -21,14 +18,19 @@
 #include <linux/types.h>
 #include <linux/fs.h>
 #include <linux/list.h>
-#include "include/utils.h"
+#include "include/misc.h"
 #include <linux/kthread.h>
 #include <linux/delay.h>
+#include <linux/slab.h>
+#include <linux/syscalls.h>
+#include <linux/errno.h>
+#include <linux/compiler.h>
+#include <linux/compiler.h>
 
-
-
+#include "include/kremfip.h"
 #include "include/rmfs.h"
-
+#include "utils/rm_syscalls.h"
+#include "scth/include/scth.h"
 //#define TEST
 
 rm_t *rm_p = NULL;
@@ -101,7 +103,27 @@ static int write_func(void *arg) {
 }
 #endif
 
+int state_get_nr = -1;
+
+/* Required module's reference. */
+struct module *scth_mod;
+
+SYSCALL_DEFINE0(state_get) {
+	if (!try_module_get(THIS_MODULE)) return -ENOSYS;
+	int ret = rm_state_get(rm_p);
+	module_put(THIS_MODULE);
+	return ret;
+}
+
 static int __init kremfip_init(void) {
+	// Lock the SCTH module.
+	scth_mod = find_module("scth");
+	if (!try_module_get(scth_mod)) {
+		printk(KERN_ERR "%s: SCTH module not found.\n", MODNAME);
+		return -EPERM;
+	}
+
+
     rm_p = rm_init();
      if (unlikely(rm_p == NULL)) {
          printk(KERN_ERR "Failed to initialize the reference monitor\n");
@@ -132,6 +154,15 @@ static int __init kremfip_init(void) {
         }
     }
 #endif
+
+	// Register the system call
+	state_get_nr = scth_hack(__x64_sys_state_get);
+	if (state_get_nr < 0) {
+		scth_unhack(state_get_nr);
+		module_put(scth_mod);
+		WARNING("Failed to install state syscall at %d\n", state_get_nr);
+		return -EPERM;
+	}
     printk(KERN_INFO "kReMFiP module loaded\n");
     return 0;
 }
@@ -153,6 +184,8 @@ static void __exit kremfip_exit(void) {
         }
     }
 #endif
+	scth_unhack(state_get_nr);
+	module_put(scth_mod);
     rm_free(rm_p);
     INFO("Module unloaded\n");
 }

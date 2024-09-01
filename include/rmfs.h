@@ -4,27 +4,31 @@
 #define RMFS_H
 
 #include <linux/module.h>
-#include <linux/crypto.h>
 #include "ht_dllist.h"
+#include "state.h"
 
 // define constants for files management
 #define RM_INIT_STATE OFF
 #define RMFS_DEFAULT_NAME "rmfs"
 // define constants for password management
+#ifndef RM_PWD_MAX_LEN
 #define RM_PWD_MAX_LEN 128
+#endif
+
+#ifndef RM_PWD_MIN_LEN
 #define RM_PWD_MIN_LEN 8
+#endif
+
+#ifndef RM_PWD_SALT_LEN
 #define RM_PWD_SALT_LEN 16
+#endif
+
+#ifndef RM_PWD_HASH_LEN
 #define RM_PWD_HASH_LEN 32
-#define RM_PWD_SALTED_HASH_LEN (RM_PWD_SALT_LEN + RM_PWD_HASH_LEN)
+#endif
 
 
 
-typedef enum _rm_state_t {
-    OFF = 0,
-    ON = 1,
-    REC_OFF = 2,
-    REC_ON = 3,
-} rm_state_t;
 
 typedef struct _rm_t {
     const char *name;                 // Name of the reference monitor

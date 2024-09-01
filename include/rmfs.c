@@ -12,7 +12,8 @@
  */
 
 #include "rmfs.h"
-#include "utils.h"
+#include "misc.h"
+#include "state.h"
 #include <crypto/hash.h>
 #include <crypto/sha256_base.h>
 #include <linux/crypto.h>

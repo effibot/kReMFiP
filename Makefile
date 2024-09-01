@@ -6,41 +6,44 @@
 
 # Module Name
 MODNAME=kremfip
-
+# Submodule Name
+SCTHNAME=scth
 # Module Version
 VERSION=0.1
 
 # Compiler
 CC=gcc
 
-
 # Current Directory
 PWD := $(shell pwd)
 
-# External libraries to link
-IDIR=$(PWD)/../include
-INCLUDES=-I$(IDIR)
-
 # Kernel Module Directory
-KDIR := /lib/modules/$(shell uname -r)/build
+KDIR = /lib/modules/$(shell uname -r)/build
+# Syscall table hacking module directory
+SCTHDIR = $(PWD)/scth
 
+# Kernel Module Source Files
+INCLUDE = include/rmfs.o include/misc.o include/ht_dllist.o
+UTILS = utils/murmurhash3.o utils/rm_syscalls.o
 
 # Compiler Flags
-CFLAGS=-Wall -Wextra -Werror $(INCLUDES)
-LDFLAGS=-L$(PWD)/../include
+CFLAGS = -Wall -Wextra -Werror -Wno-implicit-fallthrough -Wno-unused-function -O2 -g
 
 # make command invoked from the command line.
 ifeq ($(KERNELRELEASE),)
 .PHONY: all install clean uninstall load unload
 
 all:
-	$(MAKE) -C $(KDIR) M=$(PWD) modules EXTRA_CFLAGS="-Wno-implicit-fallthrough"
+	cd $(SCTHDIR) && $(MAKE) all
+	$(MAKE) -C $(KDIR) M=$(PWD) modules EXTRA_CFLAGS="$(CFLAGS)"
 
 clean:
+	cd $(SCTHDIR) && $(MAKE) clean
 	$(MAKE) -C /lib/modules/$(shell uname -r)/build M=$(PWD) clean
 
 install:
-	$(MAKE) -C /lib/modules/$(shell uname -r)/build M=$(PWD) modules_install EXTRA_CFLAGS="-Wno-implicit-fallthrough"
+	cd $(SCTHDIR) && $(MAKE) install
+	$(MAKE) -C /lib/modules/$(shell uname -r)/build M=$(PWD) modules_install
 	ln -s /lib/modules/$(shell uname -r)/extra/$(MODNAME).ko /lib/modules/$(shell uname -r)
 	depmod -a
 
@@ -51,15 +54,18 @@ uninstall:
 
 load:
 	echo "$(MODNAME) Loading..."
+	cd $(SCTHDIR) && $(MAKE) load
 	sudo insmod $(MODNAME).ko
 
 unload:
 	echo "$(MODNAME) Removing..."
+	cd $(SCTHDIR) && $(MAKE) unload
 	sudo rmmod $(MODNAME).ko
 else
 # make command invoked from the kernel build system.
 obj-m += $(MODNAME).o
-$(MODNAME)-y := kremfip_main.o include/rmfs.o include/utils.o include/ht_dllist.o utils/murmurhash3.o
+$(MODNAME)-y := kremfip_main.o $(INCLUDE) $(UTILS)
+KBUILD_EXTRA_SYMBOLS = $(SCTHDIR)/Module.symvers
 ifeq ($(DEBUG), 1)
 ccflags-y += -DDEBUG
 endif
