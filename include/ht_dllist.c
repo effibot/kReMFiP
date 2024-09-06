@@ -2,18 +2,18 @@
 // Created by effi on 13/08/24.
 //
 
-
+#include "ht_dllist.h"
+#include "../utils/murmurhash3.h"
+#include "misc.h"
 #include <linux/fs.h>
 #include <linux/hash.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/namei.h>
 #include <linux/rculist.h>
+#include <linux/rcupdate.h>
+#include <linux/slab.h>
 #include <linux/uuid.h>
-
-#include "../utils/murmurhash3.h"
-#include "ht_dllist.h"
-#include "misc.h"
 
 /* Internal API to manage the hash table - not exposed to the user.
  * The wrapper API, defined in ht_dllist.h, will call these functions,
@@ -58,7 +58,8 @@ ht_t *ht_create(const size_t size) {
 	// allocate memory for the spinlocks - one per bucket
 	table->lock = kzalloc(size * sizeof(spinlock_t), GFP_KERNEL);
 	// initialize the heads of the lists and the spinlocks
-	for (size_t bkt = 0; bkt < size; bkt++) {
+	size_t bkt;
+	for (bkt = 0; bkt < size; bkt++) {
 		table->table[bkt] = kzalloc(sizeof(node_t), GFP_KERNEL);
 		if (unlikely(table->table[bkt] == NULL)) {
 			INFO("Failed to allocate memory for list at bucket %lu\n", bkt);
@@ -171,7 +172,8 @@ int ht_destroy(ht_t *ht) {
 	// lock the whole table - if a writer is in the critical section, we need to wait
 	HT_LOCK_TABLE(ht);
 	// free the memory allocated for the heads of the lists
-	for (size_t i = 0; i < HT_SIZE; i++) {
+	size_t i;
+	for (i = 0; i < HT_SIZE; i++) {
 		node_t *tmp_head = rcu_dereference_protected(ht->table[i], lockdep_is_held(&ht->lock[i]));
 		// free the memory allocated for the elements in the list
 		node_t *tmp_node, *tmp_next;
@@ -248,18 +250,19 @@ size_t __ht_count_list(node_t *list) {
  */
 size_t *ht_count(ht_t *ht) {
 	size_t *count = kzalloc(HT_SIZE * sizeof(size_t), GFP_KERNEL);
+	size_t i;
 	if (unlikely(ht == NULL)) {
 #ifdef DEBUG
 		INFO("Passing Null table (%p)\n", ht);
 #endif
 		// fill the array with -EINVAL
-		for (size_t i = 0; i < HT_SIZE; i++)
+		for (i = 0; i < HT_SIZE; i++)
 			count[i] = -EINVAL;
 		goto ret;
 	}
 	rcu_read_lock();
 	node_t **tmp_table = rcu_dereference(ht->table);
-	for (size_t i = 0; i < HT_SIZE; i++) {
+	for (i = 0; i < HT_SIZE; i++) {
 		count[i] = __ht_count_list(tmp_table[i]);
 	}
 	rcu_read_unlock();
@@ -301,7 +304,8 @@ void ht_print(ht_t *ht) {
 	// print hash table infos
 	INFO("Table of size %d\n", HT_SIZE);
 	rcu_read_lock();
-	for (size_t i = 0; i < HT_SIZE; i++) {
+	size_t i;
+	for (i = 0; i < HT_SIZE; i++) {
 		// print the number of elements in the list at the given index
 		node_t *tmp_list_head = rcu_dereference(ht->table[i]);
 		printk("Index %lu: %lu elements\n", i, __ht_count_list(tmp_list_head));

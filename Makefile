@@ -27,14 +27,14 @@ INCLUDE = include/rmfs.o include/misc.o include/ht_dllist.o
 UTILS = utils/murmurhash3.o utils/rm_syscalls.o
 
 # Compiler Flags
-CFLAGS = -Wall -Wextra -Werror -Wno-implicit-fallthrough -Wno-unused-function -O2 -g
+CFLAGS = -Wno-declaration-after-statement -Wno-implicit-fallthrough -Wno-unused-function -O3 -g
 
 # make command invoked from the command line.
 ifeq ($(KERNELRELEASE),)
-.PHONY: all install clean uninstall load unload
+.PHONY: all clean install uninstall load unload
 
 all:
-	cd $(SCTHDIR) && $(MAKE) all
+	#cd $(SCTHDIR) && $(MAKE) all
 	$(MAKE) -C $(KDIR) M=$(PWD) modules EXTRA_CFLAGS="$(CFLAGS)"
 
 clean:
@@ -65,7 +65,6 @@ else
 # make command invoked from the kernel build system.
 obj-m += $(MODNAME).o
 $(MODNAME)-y := kremfip_main.o $(INCLUDE) $(UTILS)
-KBUILD_EXTRA_SYMBOLS = $(SCTHDIR)/Module.symvers
 ifeq ($(DEBUG), 1)
 ccflags-y += -DDEBUG
 endif

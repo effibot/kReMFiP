@@ -52,23 +52,32 @@ printk("The size of the hash table is too big. We'll reduce to 32 bits\n");
 #define X86_CACHE_LINE_SIZE 64
 
 // macro to lock the whole table
-#define HT_LOCK_TABLE(ht)                   \
-	for (size_t i = 0; i < ht->size; i++) { \
-		spin_lock(&ht->lock[i]);            \
-	}
+#define HT_LOCK_TABLE(ht)                \
+	do {                                 \
+		size_t i;                        \
+		for (i = 0; i < ht->size; i++) { \
+			spin_lock(&ht->lock[i]);     \
+		}                                \
+	} while (0)
 
 // macro to unlock the whole table
-#define HT_UNLOCK_TABLE(ht)                 \
-	for (size_t i = 0; i < ht->size; i++) { \
-		spin_unlock(&ht->lock[i]);          \
-	}
+#define HT_UNLOCK_TABLE(ht)              \
+	do {                                 \
+		size_t i;                        \
+		for (i = 0; i < ht->size; i++) { \
+			spin_unlock(&ht->lock[i]);   \
+		}                                \
+	} while (0)
+
+#define list_for_each_rcu(pos, head)                                      \
+	for (pos = rcu_dereference((head)->next); !list_is_head(pos, (head)); \
+		 pos = rcu_dereference(pos->next))
 
 // the node of the doubly linked list
 typedef struct _ht_dllist_node_t {
 	char *path; // path of the file - eg /home/user/file.txt
 	uint64_t key; // key of the element - obtained as a hash of the path
-	struct list_head
-		list; // kernel-list: provides pointers to next and previous element
+	struct list_head list; // kernel-list: provides pointers to next and previous element
 	struct rcu_head rcu; // used for RCU
 } __attribute__((aligned(X86_CACHE_LINE_SIZE))) node_t;
 
