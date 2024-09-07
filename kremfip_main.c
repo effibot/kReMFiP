@@ -11,7 +11,11 @@
 
 #define EXPORT_SYMTAB
 
+#include "include/kremfip.h"
 #include "include/misc.h"
+#include "include/rm.h"
+#include "scth/lib/scth.h"
+#include "utils/rm_syscalls.h"
 #include <linux/compiler.h>
 #include <linux/delay.h>
 #include <linux/errno.h>
@@ -19,18 +23,25 @@
 #include <linux/init.h>
 #include <linux/kernel.h>
 #include <linux/kthread.h>
-#include <linux/list.h>
 #include <linux/module.h>
 #include <linux/slab.h>
 #include <linux/syscalls.h>
 #include <linux/types.h>
-
-#include "include/kremfip.h"
-#include "include/rmfs.h"
-#include "scth/lib/scth.h"
-#include "utils/rm_syscalls.h"
+/**
+ * Since we have to runtime installs system calls we need to check the kernel version and
+ * limit the module to a specific range of versions. The lower bound is to don't be bothered
+ * with the old kernel versions, while the upper bound is to avoid the changes in the system
+ * call management that happened after the 5.4 version.
+ * TODO: we could check if this could be ported up to the 5.15 version 5.15.154
+ */
+#if LINUX_VERSION_CODE > KERNEL_VERSION(5, 4, 0)
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 17, 0)
+#error "This module requires kernel in [4.17.x, 5.4.x]"
+#endif
+#endif
 //#define TEST
 
+/* Reference monitor pointer. */
 rm_t *rm_p = NULL;
 
 #ifdef TEST
@@ -104,24 +115,35 @@ out:
 int state_get_nr = -1;
 
 /* Required module's reference. */
-struct module *scth_mod;
+struct module *scth_mod = NULL;
 
-//SYSCALL_DEFINE0(state_get) {
-//	if (!try_module_get(THIS_MODULE)) return -ENOSYS;
-//	int ret = rm_state_get(rm_p);
-//	module_put(THIS_MODULE);
-//	return ret;
-//}
+__SYSCALL_DEFINEx(1, _state_get, rm_state_t __user *, u_state) {
+#ifdef DEBUG
+	INFO("invoking __x64_sys_state_get\n");
+#endif
+	if (!try_module_get(THIS_MODULE))
+		return -ENOSYS;
+	int ret;
+	ret = rm_state_get(u_state);
+	module_put(THIS_MODULE);
+	return ret;
+}
 
 static int __init kremfip_init(void) {
 	// Lock the SCTH module.
-	//	scth_mod = find_module("scth");
-	//	if (!try_module_get(scth_mod)) {
-	//		printk(KERN_ERR "%s: SCTH module not found.\n", MODNAME);
-	//		return -EPERM;
-	//	}
+
+	mutex_lock(&module_mutex);
+	scth_mod = find_module("SCTH");
+	if (!try_module_get(scth_mod)) {
+		mutex_unlock(&module_mutex);
+		printk(KERN_ERR "%s: SCTH module not found.\n", MODNAME);
+		return -EPERM;
+	}
+	mutex_unlock(&module_mutex);
+	// the system call is exposed, we can hack it later
 
 	rm_p = rm_init();
+
 	if (unlikely(rm_p == NULL)) {
 		printk(KERN_ERR "Failed to initialize the reference monitor\n");
 		return -ENOMEM;
@@ -155,13 +177,13 @@ static int __init kremfip_init(void) {
 #endif
 
 	// Register the system call
-	//	state_get_nr = scth_hack(__x64_sys_state_get);
-	//	if (state_get_nr < 0) {
-	//		scth_unhack(state_get_nr);
-	//		module_put(scth_mod);
-	//		WARNING("Failed to install state syscall at %d\n", state_get_nr);
-	//		return -EPERM;
-	//	}
+	state_get_nr = scth_hack(__x64_sys_state_get);
+	if (state_get_nr < 0) {
+		scth_unhack(state_get_nr);
+		module_put(scth_mod);
+		WARNING("Failed to install state syscall at %d\n", state_get_nr);
+		return -EPERM;
+	}
 	printk(KERN_INFO "kReMFiP module loaded\n");
 	return 0;
 }
@@ -183,8 +205,8 @@ static void __exit kremfip_exit(void) {
 		}
 	}
 #endif
-	//scth_unhack(state_get_nr);
-	//module_put(scth_mod);
+	scth_unhack(state_get_nr);
+	module_put(scth_mod);
 	rm_free(rm_p);
 	INFO("Module unloaded\n");
 }

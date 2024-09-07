@@ -11,19 +11,17 @@ SCTHNAME=scth
 # Module Version
 VERSION=0.1
 
-# Compiler
-CC=gcc
-
 # Current Directory
 PWD := $(shell pwd)
-
+# print the current directory
+$(info PWD=$(PWD))
 # Kernel Module Directory
 KDIR = /lib/modules/$(shell uname -r)/build
 # Syscall table hacking module directory
 SCTHDIR = $(PWD)/scth
 
 # Kernel Module Source Files
-INCLUDE = include/rmfs.o include/misc.o include/ht_dllist.o
+INCLUDE = include/rm.o include/misc.o include/ht_dllist.o
 UTILS = utils/murmurhash3.o utils/rm_syscalls.o
 
 # Compiler Flags
@@ -31,26 +29,15 @@ CFLAGS = -Wno-declaration-after-statement -Wno-implicit-fallthrough -Wno-unused-
 
 # make command invoked from the command line.
 ifeq ($(KERNELRELEASE),)
-.PHONY: all clean install uninstall load unload
+.PHONY: all clean load unload
 
 all:
-	#cd $(SCTHDIR) && $(MAKE) all
+	cd $(SCTHDIR) && $(MAKE)
 	$(MAKE) -C $(KDIR) M=$(PWD) modules EXTRA_CFLAGS="$(CFLAGS)"
 
 clean:
 	cd $(SCTHDIR) && $(MAKE) clean
 	$(MAKE) -C /lib/modules/$(shell uname -r)/build M=$(PWD) clean
-
-install:
-	cd $(SCTHDIR) && $(MAKE) install
-	$(MAKE) -C /lib/modules/$(shell uname -r)/build M=$(PWD) modules_install
-	ln -s /lib/modules/$(shell uname -r)/extra/$(MODNAME).ko /lib/modules/$(shell uname -r)
-	depmod -a
-
-uninstall:
-	rm /lib/modules/$(shell uname -r)/extra/$(MODNAME).ko
-	rm /lib/modules/$(shell uname -r)/$(MODNAME).ko
-	depmod -a
 
 load:
 	echo "$(MODNAME) Loading..."
@@ -64,7 +51,9 @@ unload:
 else
 # make command invoked from the kernel build system.
 obj-m += $(MODNAME).o
+obj-y += scth/
 $(MODNAME)-y := kremfip_main.o $(INCLUDE) $(UTILS)
+KBUILD_EXTRA_SYMBOLS := $(PWD)/scth/Module.symvers
 ifeq ($(DEBUG), 1)
 ccflags-y += -DDEBUG
 endif

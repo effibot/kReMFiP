@@ -5,10 +5,12 @@
 #ifndef RM_SYSCALLS_H
 #define RM_SYSCALLS_H
 
-#include "../include/rmfs.h"
+#include "../include/rm.h"
 #include "../include/state.h"
 
-int rm_state_get(const rm_t *rm);
+int rm_state_get(rm_state_t *u_state);
 int rm_state_set(rm_state_t state);
+int rm_path_protect(const char *path);
+int rm_path_unprotect(const char *path);
 
 #endif //RM_SYSCALLS_H

@@ -19,39 +19,14 @@
 #ifndef HT_DLLIST_H
 #define HT_DLLIST_H
 
+#include "kremfip.h"
 #include <linux/spinlock.h>
 #include <linux/types.h>
-
-// default size of the hash table
-#ifndef HT_BIT_SIZE
-#define HT_BIT_SIZE 2
-#endif
-
-// default size of the key -- maximum amount of bits to (hopefully) avoid collisions
-#ifndef HT_BIT_KEY_SIZE
-#define HT_BIT_KEY_SIZE 32
-#endif
-
-// be sure that the size of the hash table is under the maximum key size we can have
-#if HT_BIT_SIZE > 32
-printk("The size of the hash table is too big. We'll reduce to 32 bits\n");
-#undef HT_BIT_SIZE
-#define HT_BIT_SIZE 32
-#endif
-
-#ifndef HT_SIZE
-#define HT_SIZE (1 << HT_BIT_SIZE) // this is 2^HT_BIT_SIZE
-#endif
-
-// take a seed for the hash function - chosen at compile time
-#ifndef HT_SEED
-#define HT_SEED 0
-#endif
-
-// define the size of the cache line for x86 architecture
-#define X86_CACHE_LINE_SIZE 64
-
-// macro to lock the whole table
+#include <linux/version.h>
+/**
+ * @brief Grab the lock on every bucket of the hash table
+ * @param ht hash table to inspect
+ */
 #define HT_LOCK_TABLE(ht)                \
 	do {                                 \
 		size_t i;                        \
@@ -60,7 +35,10 @@ printk("The size of the hash table is too big. We'll reduce to 32 bits\n");
 		}                                \
 	} while (0)
 
-// macro to unlock the whole table
+/**
+ * @brief Release the lock on every bucket of the hash table
+ * @param ht hash table to inspect
+ */
 #define HT_UNLOCK_TABLE(ht)              \
 	do {                                 \
 		size_t i;                        \
@@ -69,9 +47,18 @@ printk("The size of the hash table is too big. We'll reduce to 32 bits\n");
 		}                                \
 	} while (0)
 
-#define list_for_each_rcu(pos, head)                                      \
-	for (pos = rcu_dereference((head)->next); !list_is_head(pos, (head)); \
+/**
+ * list_is_head - check if the node is the head of the list
+ * @node: the node to check
+ * @head: the head of the list
+ * @remark: We need to redefine this macro if the kernel version is too old.
+ * Return: 1 if the node is the head of the list, 0 otherwise
+ */
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 15, 0)
+#define list_for_each_rcu(pos, head)                                       \
+	for (pos = rcu_dereference((head)->next); !list_is_first(pos, (head)); \
 		 pos = rcu_dereference(pos->next))
+#endif
 
 // the node of the doubly linked list
 typedef struct _ht_dllist_node_t {

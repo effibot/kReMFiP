@@ -12,16 +12,15 @@
 #include "../include/state.h"
 #include "../include/kremfip.h"
 #include "../include/misc.h"
-
 int main(int argc, char *argv[]) {
 	rm_state_t state;
 	int ret;
 
-	ret = state_get();
+	ret = state_get(&state);
 	if (ret < 0) {
 		printf("Error: %s\n", strerror(errno));
 		return -1;
 	}
-	printf("Current state: %s\n", state_to_str(ret));
+	printf("Current state: %s\n", state_to_str(state));
 	return 0;
 }

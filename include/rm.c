@@ -1,6 +1,6 @@
 
 /**
- * @file rmfs.c
+ * @file rm.c
  * @author Andrea Efficace (andrea.efficace1@gmail.com)
  * @brief Implementation of the reference monitor as a folder under /sys/kernel
  * We provide show/store operations and initialization functions for the reference monitor structure
@@ -11,7 +11,7 @@
  *
  */
 
-#include "rmfs.h"
+#include "rm.h"
 #include "misc.h"
 #include "state.h"
 #include <crypto/hash.h>
@@ -351,6 +351,5 @@ static bool __verify_pwd(const char *input_str) {
  */
 ssize_t rm_pwd_hash_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf) {
 	// just copy the password hash to the buffer as a null-terminated string
-	return snprintf(buf, RM_PWD_HASH_LEN * 2 + 1, "%s",
-					hex_to_str(rm_pwd_hash, RM_PWD_HASH_LEN));
+	return snprintf(buf, RM_PWD_HASH_LEN * 2 + 1, "%s", hex_to_str(rm_pwd_hash, RM_PWD_HASH_LEN));
 }
