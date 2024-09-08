@@ -1,4 +1,10 @@
 #include "misc.h"
+#ifdef __KERNEL__
+#include <linux/random.h>
+#include <linux/slab.h>
+#else
+#include <string.h>
+#endif
 char *state_to_str(const rm_state_t state) {
 	switch (state) {
 	case OFF:
@@ -27,7 +33,7 @@ rm_state_t str_to_state(const char *state_str) {
 	if (strcmp(state_str, "REC_ON") == 0) {
 		return REC_ON;
 	}
-	return -EINVAL;
+	return -1;
 }
 
 /**
@@ -36,14 +42,11 @@ rm_state_t str_to_state(const char *state_str) {
  * @param state
  * @return bool
  */
-int is_state_valid(rm_state_t state) {
+int is_state_valid(const rm_state_t state) {
 	return state == OFF || state == ON || state == REC_OFF || state == REC_ON;
 }
 
 #ifdef __KERNEL__
-#include <linux/random.h>
-#include <linux/slab.h>
-
 /**
  * @brief Generates a random ID.
  *
@@ -59,6 +62,17 @@ unsigned int rnd_id(void) {
 	return 1u + (random_ticket % 32u);
 }
 
+/**
+ * @brief Converts a byte array to a hex string.
+ *
+ * This function converts a byte array to a hex string.
+ * It allocates memory for the string, so the caller is responsible
+ * for freeing it when it is no longer needed.
+ *
+ * @param hex The byte array to convert.
+ * @param len The length of the byte array.
+ * @return A hex string representation of the byte array.
+ */
 char *hex_to_str(const unsigned char *hex, const size_t len) {
 	// be sure the hex string is not empty
 	if (strlen(hex) == 0) {

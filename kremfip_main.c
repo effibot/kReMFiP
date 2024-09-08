@@ -113,7 +113,7 @@ out:
 #endif
 
 int state_get_nr = -1;
-
+int state_set_nr = -1;
 /* Required module's reference. */
 struct module *scth_mod = NULL;
 
@@ -125,6 +125,28 @@ __SYSCALL_DEFINEx(1, _state_get, rm_state_t __user *, u_state) {
 		return -ENOSYS;
 	int ret;
 	ret = rm_state_get(u_state);
+	if (ret != 0) {
+		WARNING("failed to copy to user\n");
+		module_put(THIS_MODULE);
+		return -EFAULT;
+	}
+	module_put(THIS_MODULE);
+	return ret;
+}
+
+__SYSCALL_DEFINEx(2, _state_set, rm_state_t __user, state, char __user *, pwd) {
+#ifdef DEBUG
+	INFO("Invoking __x64_sys_state_set\n");
+#endif
+	if (!try_module_get(THIS_MODULE))
+		return -ENOSYS;
+	int ret;
+	ret = rm_state_set(state, pwd);
+	if (ret != 0) {
+		WARNING("failed to copy to user with error: %d\n", ret);
+		module_put(THIS_MODULE);
+		return -EFAULT;
+	}
 	module_put(THIS_MODULE);
 	return ret;
 }
@@ -178,6 +200,7 @@ static int __init kremfip_init(void) {
 
 	// Register the system call
 	state_get_nr = scth_hack(__x64_sys_state_get);
+	state_set_nr = scth_hack(__x64_sys_state_set);
 	if (state_get_nr < 0) {
 		scth_unhack(state_get_nr);
 		module_put(scth_mod);

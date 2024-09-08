@@ -6,9 +6,7 @@
 #define MISC_H
 
 #include "kremfip.h"
-#ifndef __KERNEL__
-#include <string.h>
-#endif
+
 // Function prototypes - no kernel specific code here
 char *state_to_str(rm_state_t state);
 rm_state_t str_to_state(const char *state_str);

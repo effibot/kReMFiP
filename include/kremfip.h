@@ -7,6 +7,9 @@
 
 #include "state.h"
 
+#define RM_PWD_MAX_LEN 128
+#define RM_PWD_MIN_LEN 1
+
 #ifdef __KERNEL__
 /* Kernel Module Header Section */
 #define MODNAME "KREMFIP"
@@ -40,8 +43,6 @@ printk("The size of the hash table is too big. We'll reduce to 32 bits\n");
 // define the size of the cache line for x86 architecture
 #define X86_CACHE_LINE_SIZE 64
 
-#define RM_PWD_MAX_LEN 128
-#define RM_PWD_MIN_LEN 8
 #define RM_PWD_SALT_LEN 16
 #define RM_PWD_HASH_LEN 32
 
@@ -66,6 +67,8 @@ printk("The size of the hash table is too big. We'll reduce to 32 bits\n");
 #endif
 
 #include <errno.h>
+#include <stdio.h>
+#include <string.h>
 #include <sys/ipc.h>
 #include <sys/syscall.h>
 #include <sys/types.h>
@@ -78,7 +81,7 @@ printk("The size of the hash table is too big. We'll reduce to 32 bits\n");
  */
 static inline int state_get(rm_state_t *u_state) {
 	errno = 0;
-	return syscall(__NR_state_get, *u_state);
+	return syscall(__NR_state_get, u_state);
 }
 
 /**
@@ -88,7 +91,21 @@ static inline int state_get(rm_state_t *u_state) {
  */
 static inline int state_set(rm_state_t state) {
 	errno = 0;
-	return syscall(__NR_state_set, state);
+	char *pwd;
+	pwd = "nopwd";
+	// We need to prompt the user to enter the password
+	if (state == REC_ON || state == REC_OFF) {
+		pwd = getpass("Enter the password: ");
+		if (strlen(pwd) < RM_PWD_MIN_LEN || strlen(pwd) > RM_PWD_MAX_LEN) {
+			printf("Password can't be empty and must be between %d and %d characters\n",
+				   RM_PWD_MIN_LEN, RM_PWD_MAX_LEN);
+			return -1;
+		}
+		if (pwd == NULL) {
+			return -1;
+		}
+	}
+	return syscall(__NR_state_set, state, pwd);
 }
 /**
  * @brief Protect a path by adding it to the reference monitor's hash table

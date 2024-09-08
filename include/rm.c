@@ -35,12 +35,10 @@
 /*********************************
  * Internal functions prototypes *
  *********************************/
-// internal state settings to make checks without leaking information in other files
-int __set_state(rm_t *rm, rm_state_t state);
 // internal password hashing function
 static int __rm_hash_pwd(const char *pwd, const u8 *pwd_salt, u8 *pwd_hash);
 // internal password verification function
-static bool __verify_pwd(const char *input_str);
+//static bool __verify_pwd(const char *input_str);
 // dedicated sysfs file for the password hash
 static ssize_t rm_pwd_hash_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf);
 
@@ -121,29 +119,27 @@ rm_t *rm_init(void) {
 	INFO("Hash table initialized");
 	return rm;
 }
-
+/**
+ * @brief Set the state of the reference monitor to a VALID state.
+ * Since this is the setter function, we avoid to make checks here,
+ * as they should be done in the caller function.
+ * @param rm The reference monitor structure
+ * @param state The new state of the reference monitor
+ * @return int 0 if the state is set successfully, an error code otherwise
+ */
 int set_state(rm_t *rm, const rm_state_t state) {
-	// We need to check eUID to see if the user is root
-	if (unlikely(!capable(CAP_SYS_ADMIN))) {
-		INFO("User is not root");
-		goto no_root;
-	}
-	// calling user has root privileges - asks for the reference monitor password
-	if (unlikely(rm == NULL)) {
-		INFO("Reference monitor is NULL");
-		goto error;
+	// safety checks
+	if(unlikely(rm == NULL)) {
+		WARNING("Reference monitor is NULL");
+		return -EINVAL;
 	}
 
 	// set the state
-	if (__set_state(rm, state) != 0) {
-		INFO("Failed to set the state");
-		goto error;
-	}
+#ifdef DEBUG
+	INFO("Setting the state to %s\n", state_to_str(state));
+#endif
+	rm->state = state;
 	return 0;
-error:
-	return -EINVAL;
-no_root:
-	return -EPERM;
 }
 
 rm_state_t get_state(const rm_t *rm) {
@@ -174,30 +170,6 @@ void rm_free(const rm_t *rm) {
 /*************************************
  * Internal function implementations *
  *************************************/
-
-int __set_state(rm_t *rm, const rm_state_t state) {
-	//TODO - implement password check
-	// assert that the reference monitor is not NULL
-	if (unlikely(rm == NULL)) {
-		INFO("Reference monitor is NULL");
-		goto error;
-	}
-	// check if the state is valid
-	if (!is_state_valid(state)) {
-		INFO("Trying to set an invalid state - %s is given", state_to_str(state));
-		goto error;
-	}
-#ifdef DEBUG
-	INFO("Setting state to %s", state_to_str(state));
-#endif
-	// set the state
-	rm->state = state;
-
-	return 0;
-
-error:
-	return -EINVAL;
-}
 
 /**
  * @brief Hash the password with the salt
@@ -296,7 +268,7 @@ out:
  * @return false The hash of the input string does not match the stored hash
  */
 
-static bool __verify_pwd(const char *input_str) {
+bool verify_pwd(const char *input_str) {
 	// Ensure the input string is not NULL
 	if (IS_ERR_OR_NULL(input_str)) {
 		WARNING("Input string is NULL");
