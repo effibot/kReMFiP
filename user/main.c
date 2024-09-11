@@ -25,11 +25,15 @@ int main(int argc, char *argv[]) {
 	printf("%d\n", *state);
 	printf("Current state: %s\n", state_to_str(*state));
 	rm_state_t new_state = REC_OFF;
-	ret = state_set(new_state);
+	ret = state_set(&new_state);
 	if (ret < 0) {
 		printf("Error: %s\n", strerror(errno));
 		return -1;
 	}
 	printf("New state: %s\n", state_to_str(state_get(state)));
+	new_state = ON;
+	state_set(&new_state);
+	printf("New state: %s\n", state_to_str(state_get(state)));
+
 	return 0;
 }

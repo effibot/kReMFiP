@@ -134,14 +134,15 @@ __SYSCALL_DEFINEx(1, _state_get, rm_state_t __user *, u_state) {
 	return ret;
 }
 
-__SYSCALL_DEFINEx(2, _state_set, rm_state_t __user, state, char __user *, pwd) {
+__SYSCALL_DEFINEx(3, _state_set, rm_state_t __user *, state, char __user *, pwd, size_t, pwd_len) {
 #ifdef DEBUG
 	INFO("Invoking __x64_sys_state_set\n");
 #endif
 	if (!try_module_get(THIS_MODULE))
 		return -ENOSYS;
 	int ret;
-	ret = rm_state_set(state, pwd);
+	INFO("do syscall state_set\n");
+	ret = rm_state_set(state, pwd, pwd_len);
 	if (ret != 0) {
 		WARNING("failed to copy to user with error: %d\n", ret);
 		module_put(THIS_MODULE);

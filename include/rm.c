@@ -115,7 +115,12 @@ rm_t *rm_init(void) {
 		kfree(rm);
 		return NULL;
 	}
-
+	// check if the password hash is stored correctly
+	if(!verify_pwd(module_pwd)) {
+		WARNING("Failed to verify the password hash");
+		kfree(rm);
+		return NULL;
+	}
 	INFO("Hash table initialized");
 	return rm;
 }
@@ -270,27 +275,30 @@ out:
 
 bool verify_pwd(const char *input_str) {
 	// Ensure the input string is not NULL
+	INFO("Verifying the password");
 	if (IS_ERR_OR_NULL(input_str)) {
 		WARNING("Input string is NULL");
 		return false;
 	}
-
+	INFO("Input string is not NULL, performing hash");
 	// Hash the input string
-	u8 input_hash[RM_PWD_HASH_LEN];
+	u8 *input_hash = kzalloc(RM_PWD_HASH_LEN*sizeof(u8), GFP_KERNEL);
 	if (__rm_hash_pwd(input_str, pwd_salt, input_hash)) {
 		WARNING("Failed to hash the input string");
 		return false;
 	}
-
+	INFO("Hash computed successfully");
 	// Retrieve the stored hash from the sysfs
 	struct file *f = filp_open("/sys/module/kremfip/rm_pwd_hash/rm_pwd_hash", O_RDONLY, 0);
 	if (IS_ERR(f)) {
 		WARNING("Failed to open the sysfs file");
 		return false;
 	}
-
+	INFO("Sysfs file opened successfully");
 	// Read the stored hash from the sysfs
-	char stored_hash[RM_PWD_HASH_LEN * 2 + 1] = { 0 };
+	char *stored_hash;
+	size_t stored_hash_len = RM_PWD_HASH_LEN * 2 + 1;
+	stored_hash = kzalloc(stored_hash_len*sizeof(char), GFP_KERNEL);
 	const ssize_t bytes_read = kernel_read(f, stored_hash, RM_PWD_HASH_LEN * 2, &f->f_pos);
 	filp_close(f, NULL);
 
@@ -298,16 +306,21 @@ bool verify_pwd(const char *input_str) {
 		WARNING("Failed to read the stored hash from the sysfs file");
 		return false;
 	}
-
+	INFO("Stored hash read successfully");
 	// Compare the hashes
+	INFO("Comparing hashes: %s vs %s", hex_to_str(input_hash, RM_PWD_HASH_LEN), stored_hash);
 	const bool cmp =
 		memcmp(hex_to_str(input_hash, RM_PWD_HASH_LEN), stored_hash, RM_PWD_HASH_LEN) == 0;
-
+	INFO("Hashes compared successfully");
 	// Clean up the stored hash
-	memzero_explicit(stored_hash, sizeof(stored_hash));
-	memzero_explicit(input_hash, sizeof(input_hash));
+	memzero_explicit(stored_hash, stored_hash_len);
+	INFO("memzeroed stored hash");
+	memzero_explicit(input_hash, RM_PWD_HASH_LEN);
+	INFO("memzeroed input hash");
 	kfree(stored_hash);
+	INFO("clean up mem");
 	kfree(input_hash);
+	INFO("clean up mem");
 	return cmp;
 }
 

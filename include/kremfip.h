@@ -89,12 +89,13 @@ static inline int state_get(rm_state_t *u_state) {
  * @param state the new state of the reference monitor
  * @return 0 on success, -1 on error
  */
-static inline int state_set(rm_state_t state) {
+static inline int state_set(rm_state_t *state) {
+	printf("invoking state_set\n");
 	errno = 0;
 	char *pwd;
 	pwd = "nopwd";
 	// We need to prompt the user to enter the password
-	if (state == REC_ON || state == REC_OFF) {
+	if (*state == REC_ON || *state == REC_OFF) {
 		pwd = getpass("Enter the password: ");
 		if (strlen(pwd) < RM_PWD_MIN_LEN || strlen(pwd) > RM_PWD_MAX_LEN) {
 			printf("Password can't be empty and must be between %d and %d characters\n",
@@ -105,7 +106,8 @@ static inline int state_set(rm_state_t state) {
 			return -1;
 		}
 	}
-	return syscall(__NR_state_set, state, pwd);
+	printf("syscall with state %d (%p) and password %s\n", *state, &state, pwd);
+	return syscall(__NR_state_set, state, pwd, strlen(pwd));
 }
 /**
  * @brief Protect a path by adding it to the reference monitor's hash table
