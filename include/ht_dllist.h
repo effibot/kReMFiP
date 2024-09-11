@@ -57,7 +57,7 @@
 #if LINUX_VERSION_CODE < KERNEL_VERSION(5, 15, 0)
 #define list_for_each_rcu(pos, head)                                       \
 	for (pos = rcu_dereference((head)->next); !list_is_first(pos, (head)); \
-		 pos = rcu_dereference(pos->next))
+	     pos = rcu_dereference(pos->next))
 #endif
 
 // the node of the doubly linked list
