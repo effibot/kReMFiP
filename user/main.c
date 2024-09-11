@@ -2,6 +2,8 @@
 // Created by effi on 01/09/24.
 //
 
+#define DEBUG
+
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -30,7 +32,15 @@ int main(int argc, char *argv[]) {
 		printf("Error: %s\n", strerror(errno));
 		return -1;
 	}
-	printf("New state: %s\n", state_to_str(state_get(state)));
-
+	ret = state_get(state);
+	printf("New state: %s\n", state_to_str(*state));
+	char *path = "/home/effi/file0.txt";
+	path_op_t op = PROTECT_PATH;
+	ret = reconfigure(&op, path);
+	if (ret < 0) {
+		printf("Error: %s\n", strerror(errno));
+		return -1;
+	}
+	printf("Reconfigured\n");
 	return 0;
 }

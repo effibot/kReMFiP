@@ -10,4 +10,6 @@ typedef enum _rm_state_t {
 	REC_OFF = 2,
 	REC_ON = 3,
 } rm_state_t;
+typedef enum { PROTECT_PATH = 0, UNPROTECT_PATH = 1 } path_op_t;
+
 #endif //STATE_H

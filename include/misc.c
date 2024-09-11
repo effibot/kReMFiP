@@ -45,6 +45,9 @@ rm_state_t str_to_state(const char *state_str) {
 int is_state_valid(const rm_state_t state) {
 	return state == OFF || state == ON || state == REC_OFF || state == REC_ON;
 }
+int is_op_valid(const path_op_t op) {
+	return op == PROTECT_PATH || op == UNPROTECT_PATH;
+}
 
 #ifdef __KERNEL__
 /**

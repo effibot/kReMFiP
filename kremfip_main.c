@@ -116,6 +116,7 @@ out:
 
 int state_get_nr = -1;
 int state_set_nr = -1;
+int reconfigure_nr = -1;
 /* Required module's reference. */
 struct module *scth_mod = NULL;
 
@@ -136,7 +137,7 @@ __SYSCALL_DEFINEx(1, _state_get, rm_state_t __user *, u_state) {
 	return ret;
 }
 
-__SYSCALL_DEFINEx(2, _state_set, rm_state_t __user *, state, char __user *, pwd) {
+__SYSCALL_DEFINEx(2, _state_set, const rm_state_t __user *, state, char __user *, pwd) {
 #ifdef DEBUG
 	INFO("Invoking __x64_sys_state_set\n");
 #endif
@@ -144,7 +145,7 @@ __SYSCALL_DEFINEx(2, _state_set, rm_state_t __user *, state, char __user *, pwd)
 		return -ENOSYS;
 	int ret;
 	INFO("do syscall state_set\n");
-	ret = rm_state_set(state, pwd, strlen_user(pwd));
+	ret = rm_state_set(state, pwd, strnlen_user(pwd, PAGE_SIZE));
 	if (ret != 0) {
 		WARNING("failed to copy to user with error: %d\n", ret);
 		module_put(THIS_MODULE);
@@ -161,7 +162,7 @@ __SYSCALL_DEFINEx(3, _reconfigure, const path_op_t __user*, op, const char __use
 	if(!try_module_get(THIS_MODULE))
 		return -ENOSYS;
 	int ret;
-	ret = rm_reconfigure(op, path, strlen_user(path), pwd, strlen_user(pwd));
+	ret = rm_reconfigure(op, path, strnlen_user(path, PAGE_SIZE), pwd, strnlen_user(pwd, PAGE_SIZE));
 	if (ret != 0) {
 		WARNING("failed to copy to user with error: %d\n", ret);
 		module_put(THIS_MODULE);
@@ -222,6 +223,7 @@ static int __init kremfip_init(void) {
 	// Register the system call
 	state_get_nr = scth_hack(__x64_sys_state_get);
 	state_set_nr = scth_hack(__x64_sys_state_set);
+	reconfigure_nr = scth_hack(__x64_sys_reconfigure);
 	if (state_get_nr < 0) {
 		scth_unhack(state_get_nr);
 		module_put(scth_mod);
@@ -250,6 +252,8 @@ static void __exit kremfip_exit(void) {
 	}
 #endif
 	scth_unhack(state_get_nr);
+	scth_unhack(state_set_nr);
+	scth_unhack(reconfigure_nr);
 	module_put(scth_mod);
 	rm_free(rm_p);
 	INFO("Module unloaded\n");

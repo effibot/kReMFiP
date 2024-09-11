@@ -11,7 +11,7 @@
 char *state_to_str(rm_state_t state);
 rm_state_t str_to_state(const char *state_str);
 int is_state_valid(rm_state_t state);
-
+int is_op_valid(path_op_t op);
 #ifdef __KERNEL__
 #include <linux/kernel.h>
 /* Some useful debug macros - the message we want to print is like

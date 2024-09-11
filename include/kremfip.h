@@ -70,22 +70,25 @@ printk("The size of the hash table is too big. We'll reduce to 32 bits\n");
 #include <sys/types.h>
 #include <unistd.h>
 /* Userspace System Calls Stubs */
-static inline int prompt_for_pwd(char* pwd) {
+static inline char *prompt_for_pwd(void) {
+	char *pwd;
 	pwd = getpass("Enter the password: ");
 	if (pwd == NULL) {
 		printf("Failed to read the password\n");
 		goto out;
 	}
 	const int len = strlen(pwd);
-	if (len < RM_PWD_MIN_LEN ) {
+	if (len < RM_PWD_MIN_LEN) {
 		printf("The password is too short\n");
-	} else if (len > RM_PWD_MAX_LEN) {
-		printf("The password is too long\n");
-	} else {
-		return 0;
+		goto out;
 	}
+	if (len > RM_PWD_MAX_LEN) {
+		printf("The password is too long\n");
+		goto out;
+	}
+	return pwd;
 out:
-	return -1;
+	return NULL;
 }
 /**
  * @brief Get the current state of the reference monitor
@@ -107,23 +110,23 @@ static inline int state_set(rm_state_t *state) {
 	// if the state we want to  is REC_ON or REC_OFF we need to prompt for the password
 	char *pwd = "nopwd";
 	switch (*state) {
-		case REC_ON:
-		case REC_OFF:
-			// prompt for password - this will overwrite whatever is stored in pwd.
-			if(prompt_for_pwd(pwd) != 0) return -1;
-			break;
-		default:
-			break;
+	case REC_ON:
+		printf("Setting the state to REC_ON\n");
+
+	case REC_OFF:
+		printf("Setting the state to REC_OFF\n");
+		// prompt for password - this will overwrite whatever is stored in pwd.
+		pwd = prompt_for_pwd();
+		if (pwd == NULL)
+			return -1;
+		break;
+	default:
+		break;
 	}
 	return syscall(__NR_state_set, state, pwd);
 }
 
-typedef enum {
-	PROTECT_PATH = 0,
-	UNPROTECT_PATH = 1
-} path_op_t;
-
-static inline int reconfigure(const path_op_t op, const char *path) {
+static inline int reconfigure(const path_op_t *op, const char *path) {
 	errno = 0;
 	// firstly we check the state of the reference monitor. If is ON or OFF it can't be reconfigured
 	rm_state_t state;
@@ -137,12 +140,13 @@ static inline int reconfigure(const path_op_t op, const char *path) {
 		printf("The reference monitor is in a state that can't be reconfigured\n");
 		return -1;
 	}
-	// The monitor is reconfigurable, asking for the password
+	//y The monitor is reconfigurable, asking for the password
 	char *pwd;
-	pwd = "nopwd"; // just to initialize the pointer
-	if(prompt_for_pwd(pwd) != 0) return -1;
+	pwd = prompt_for_pwd();
+	if (pwd == NULL)
+		return -1;
 	// all clear, we can reconfigure
-	return syscall(__NR_reconfigure, op, path, strlen(path), );
+	return syscall(__NR_reconfigure, op, path, pwd);
 	return -1;
 }
 

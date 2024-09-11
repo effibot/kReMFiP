@@ -60,7 +60,7 @@ int rm_state_get(rm_state_t __user *u_state) {
  * @param pwd the password to set the monitor to REC_ON or REC_OFF
  * @return 0 on success, -1 on error
  */
-int rm_state_set(rm_state_t __user *u_state, const char __user *pwd, size_t pwd_len) {
+int rm_state_set(const rm_state_t __user *u_state, const char __user *pwd, size_t pwd_len) {
 	INFO("null check");
 	// Check if the reference monitor is initialized
 	if (unlikely(rm_p == NULL)) {
@@ -167,7 +167,7 @@ int rm_state_set(rm_state_t __user *u_state, const char __user *pwd, size_t pwd_
  * @return 0 on success, -1 on error
  */
 
-int rm_reconfigure(path_op_t __user *op, const char __user *path, size_t path_len, const char __user *pwd, size_t pwd_len) {
+int rm_reconfigure(const path_op_t __user *op, const char __user *path, size_t path_len, const char __user *pwd, size_t pwd_len) {
 	// Check if the reference monitor is initialized
 	if (unlikely(rm_p == NULL)) {
 		WARNING("Passing a NULL reference monitor to the system call\n");
@@ -201,12 +201,12 @@ int rm_reconfigure(path_op_t __user *op, const char __user *path, size_t path_le
 		kfree(kpath);
 		return -EFAULT;
 	}
-	if (unlikely(!is_path_valid(kpath))) {
-		WARNING("Invalid path\n");
-		kfree(new_op);
-		kfree(kpath);
-		return -EINVAL;
-	}
+//	if (unlikely(!is_path_valid(kpath))) {
+//		WARNING("Invalid path\n");
+//		kfree(new_op);
+//		kfree(kpath);
+//		return -EINVAL;
+//	}
 	// Check if the password is valid
 	char *kpwd;
 	kpwd = kzalloc(pwd_len+1, GFP_KERNEL);
@@ -219,7 +219,7 @@ int rm_reconfigure(path_op_t __user *op, const char __user *path, size_t path_le
 		kfree(kpwd);
 		return -EFAULT;
 	}
-	if (unlikely(!is_pwd_valid(kpwd))) {
+	if (!verify_pwd(kpwd)) {
 		WARNING("Invalid password\n");
 		kfree(new_op);
 		kfree(kpath);
