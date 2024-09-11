@@ -5,24 +5,22 @@
 
 
 # Module Name
-MODNAME=kremfip
+MODNAME := kremfip
 # Submodule Name
-SCTHNAME=scth
+SCTHNAME := scth
 # Module Version
-VERSION=0.1
+VERSION := 0.1
 
 # Current Directory
 PWD := $(shell pwd)
-# print the current directory
-$(info PWD=$(PWD))
 # Kernel Module Directory
-KDIR = /lib/modules/$(shell uname -r)/build
+KDIR ?= /lib/modules/$(shell uname -r)/build
 # Syscall table hacking module directory
-SCTHDIR = $(PWD)/scth
+SCTHDIR := $(PWD)/scth
 
 # Kernel Module Source Files
-INCLUDE = include/rm.o include/misc.o include/ht_dllist.o
-UTILS = utils/murmurhash3.o utils/rm_syscalls.o
+INCLUDE := include/rm.o include/misc.o include/ht_dllist.o
+UTILS := utils/murmurhash3.o utils/rm_syscalls.o
 
 # Compiler Flags
 CFLAGS = -Wno-declaration-after-statement -Wno-implicit-fallthrough -Wno-unused-function -O3 -g
@@ -32,12 +30,12 @@ ifeq ($(KERNELRELEASE),)
 .PHONY: all clean load unload
 
 all:
-	cd $(SCTHDIR) && $(MAKE)
-	$(MAKE) -C $(KDIR) M=$(PWD) modules EXTRA_CFLAGS="$(CFLAGS)"
+	cd $(SCTHDIR) && $(MAKE) all
+	$(MAKE) -C $(KDIR) M=$(PWD) modules EXTRA_CFLAGS="$(CFLAGS)" -j$(shell nproc)
 
 clean:
 	cd $(SCTHDIR) && $(MAKE) clean
-	$(MAKE) -C /lib/modules/$(shell uname -r)/build M=$(PWD) clean
+	$(MAKE) -C $(KDIR) M=$(PWD) clean
 
 load:
 	echo "$(MODNAME) Loading..."

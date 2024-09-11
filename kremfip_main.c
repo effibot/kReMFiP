@@ -27,6 +27,7 @@
 #include <linux/slab.h>
 #include <linux/syscalls.h>
 #include <linux/types.h>
+#include <linux/uaccess.h>
 /**
  * Since we have to runtime installs system calls we need to check the kernel version and
  * limit the module to a specific range of versions. The lower bound is to don't be bothered
@@ -134,7 +135,7 @@ __SYSCALL_DEFINEx(1, _state_get, rm_state_t __user *, u_state) {
 	return ret;
 }
 
-__SYSCALL_DEFINEx(3, _state_set, rm_state_t __user *, state, char __user *, pwd, size_t, pwd_len) {
+__SYSCALL_DEFINEx(2, _state_set, rm_state_t __user *, state, char __user *, pwd) {
 #ifdef DEBUG
 	INFO("Invoking __x64_sys_state_set\n");
 #endif
@@ -142,7 +143,7 @@ __SYSCALL_DEFINEx(3, _state_set, rm_state_t __user *, state, char __user *, pwd,
 		return -ENOSYS;
 	int ret;
 	INFO("do syscall state_set\n");
-	ret = rm_state_set(state, pwd, pwd_len);
+	ret = rm_state_set(state, pwd, strlen_user(pwd));
 	if (ret != 0) {
 		WARNING("failed to copy to user with error: %d\n", ret);
 		module_put(THIS_MODULE);
@@ -151,6 +152,24 @@ __SYSCALL_DEFINEx(3, _state_set, rm_state_t __user *, state, char __user *, pwd,
 	module_put(THIS_MODULE);
 	return ret;
 }
+
+__SYSCALL_DEFINEx(3, _reconfigure, const path_op_t __user*, op, const char __user *, path, const char __user*, pwd) {
+#ifdef DEBUG
+	INFO("Invoking __x64_sys_reconfigure\n");
+#endif
+	if(!try_module_get(THIS_MODULE))
+		return -ENOSYS;
+	int ret;
+	ret = rm_reconfigure(op, path, strlen_user(path), pwd, strlen_user(pwd));
+	if (ret != 0) {
+		WARNING("failed to copy to user with error: %d\n", ret);
+		module_put(THIS_MODULE);
+		return -EFAULT;
+	}
+	module_put(THIS_MODULE);
+	return ret;
+}
+
 
 static int __init kremfip_init(void) {
 	// Lock the SCTH module.

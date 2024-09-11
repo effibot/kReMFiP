@@ -31,9 +31,6 @@ int main(int argc, char *argv[]) {
 		return -1;
 	}
 	printf("New state: %s\n", state_to_str(state_get(state)));
-	new_state = ON;
-	state_set(&new_state);
-	printf("New state: %s\n", state_to_str(state_get(state)));
 
 	return 0;
 }

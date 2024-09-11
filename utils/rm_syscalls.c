@@ -5,15 +5,15 @@
 
 #include <linux/kernel.h>
 #include <linux/module.h>
-
+#include <linux/slab.h>
 #include "../include/kremfip.h"
 #include "../include/misc.h"
 #include "../include/rm.h"
+#include "../include/ht_dllist.h"
 #include "rm_syscalls.h"
 
-#include "../../../../media/sf_kReMFiP/include/misc.h"
-#include "../../../../usr/src/linux-headers-5.4.0-150-generic/include/linux/slab.h"
 #include <linux/uaccess.h>
+
 
 #define DEBUG
 
@@ -78,11 +78,13 @@ int rm_state_set(rm_state_t __user *u_state, const char __user *pwd, size_t pwd_
 	asm volatile("mfence" ::: "memory");
 	if (ret != 0) {
 		WARNING("failed to copy from user\n");
+		kfree(new_state);
 		return -EFAULT;
 	}
 	// checks if the state is valid
 	if (unlikely(!is_state_valid(*new_state))) {
 		WARNING("Invalid state");
+		kfree(new_state);
 		return -EINVAL;
 	}
 #ifdef DEBUG
@@ -100,6 +102,8 @@ int rm_state_set(rm_state_t __user *u_state, const char __user *pwd, size_t pwd_
 
 	if (ret != 0) {
 		WARNING("failed to copy from user\n");
+		kfree(new_state);
+		kfree(kpwd);
 		return -EFAULT;
 	}
 	INFO("copied password from user: %s (%ld)\n", kpwd, strlen(kpwd));
@@ -110,6 +114,8 @@ int rm_state_set(rm_state_t __user *u_state, const char __user *pwd, size_t pwd_
 	case OFF:
 		if (strcmp(kpwd, "nopwd") != 0) {
 			WARNING("Password is not valid\n");
+			kfree(new_state);
+			kfree(kpwd);
 			return -EINVAL;
 		}
 		break;
@@ -121,6 +127,8 @@ int rm_state_set(rm_state_t __user *u_state, const char __user *pwd, size_t pwd_
 #endif
 		if (strlen(kpwd) < RM_PWD_MIN_LEN || strlen(kpwd) > RM_PWD_MAX_LEN) {
 			WARNING("Password is not valid, wrong length\n");
+			kfree(new_state);
+			kfree(kpwd);
 			return -EINVAL;
 		}
 #ifdef DEBUG
@@ -128,6 +136,8 @@ int rm_state_set(rm_state_t __user *u_state, const char __user *pwd, size_t pwd_
 #endif
 		if (!verify_pwd(kpwd)) {
 			WARNING("Password is not valid, wrong hash\n");
+			kfree(new_state);
+			kfree(kpwd);
 			return -EINVAL;
 		}
 		break;
@@ -138,7 +148,104 @@ int rm_state_set(rm_state_t __user *u_state, const char __user *pwd, size_t pwd_
 	ret = set_state(rm_p, *new_state);
 	if (ret != 0) {
 		WARNING("failed to set the state\n");
+		kfree(new_state);
+		kfree(kpwd);
 		return -EFAULT;
 	}
+	// Free the allocated memory
+	kfree(new_state);
+	kfree(kpwd);
+	return 0;
+}
+
+/**
+ * @brief System call to reconfigure the reference monitor.
+ * The reference monitor can be reconfigured only if it is in the OFF state.
+ * @param op the operation to perform on the path
+ * @param path the path to reconfigure
+ * @param pwd the password to reconfigure the path
+ * @return 0 on success, -1 on error
+ */
+
+int rm_reconfigure(path_op_t __user *op, const char __user *path, size_t path_len, const char __user *pwd, size_t pwd_len) {
+	// Check if the reference monitor is initialized
+	if (unlikely(rm_p == NULL)) {
+		WARNING("Passing a NULL reference monitor to the system call\n");
+		return -EINVAL;
+	}
+	// We don't check if the state is REC_x because it's checked before calling this function
+	// Check if the operation is valid
+	path_op_t *new_op;
+	new_op = kzalloc(sizeof(path_op_t), GFP_KERNEL);
+	int ret;
+	ret = copy_from_user(new_op, op, sizeof(path_op_t));
+	asm volatile("mfence" ::: "memory");
+	if (ret != 0) {
+		WARNING("failed to copy from user\n");
+		kfree(new_op);
+		return -EFAULT;
+	}
+	if (unlikely(!is_op_valid(*new_op))) {
+		WARNING("Invalid operation\n");
+		kfree(new_op);
+		return -EINVAL;
+	}
+	// Check if the path is valid
+	char *kpath;
+	kpath = kzalloc(path_len+1, GFP_KERNEL);
+	ret = copy_from_user(kpath, path, path_len);
+	asm volatile("mfence" ::: "memory");
+	if (ret != 0) {
+		WARNING("failed to copy from user\n");
+		kfree(new_op);
+		kfree(kpath);
+		return -EFAULT;
+	}
+	if (unlikely(!is_path_valid(kpath))) {
+		WARNING("Invalid path\n");
+		kfree(new_op);
+		kfree(kpath);
+		return -EINVAL;
+	}
+	// Check if the password is valid
+	char *kpwd;
+	kpwd = kzalloc(pwd_len+1, GFP_KERNEL);
+	ret = copy_from_user(kpwd, pwd, pwd_len);
+	asm volatile("mfence" ::: "memory");
+	if (ret != 0) {
+		WARNING("failed to copy from user\n");
+		kfree(new_op);
+		kfree(kpath);
+		kfree(kpwd);
+		return -EFAULT;
+	}
+	if (unlikely(!is_pwd_valid(kpwd))) {
+		WARNING("Invalid password\n");
+		kfree(new_op);
+		kfree(kpath);
+		kfree(kpwd);
+		return -EINVAL;
+	}
+	// The data we received is valid, we can reconfigure the path
+	// to protect a path we add a node in the hash table, to remove it we delete it
+	switch (*new_op) {
+		case PROTECT_PATH:
+			ret = ht_insert_node(rm_p->ht, node_init(kpath));
+			break;
+		case UNPROTECT_PATH:
+			ret = ht_delete_node(rm_p->ht, node_init(kpath));
+			break;
+	}
+	if (ret != 0) {
+		WARNING("failed to reconfigure the path\n");
+		kfree(new_op);
+		kfree(kpath);
+		kfree(kpwd);
+		return -EFAULT;
+	}
+	// Free the allocated memory
+	kfree(new_op);
+	kfree(kpath);
+	kfree(kpwd);
 	return 0;
 }

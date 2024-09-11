@@ -58,12 +58,8 @@ printk("The size of the hash table is too big. We'll reduce to 32 bits\n");
 #define __NR_state_set 174
 #endif
 
-#ifndef __NR_path_protect
-#define __NR_path_protect 177
-#endif
-
-#ifndef __NR_path_unprotect
-#define __NR_path_unprotect 178
+#ifndef __NR_reconfigure
+#define __NR_reconfigure 177
 #endif
 
 #include <errno.h>
@@ -74,7 +70,23 @@ printk("The size of the hash table is too big. We'll reduce to 32 bits\n");
 #include <sys/types.h>
 #include <unistd.h>
 /* Userspace System Calls Stubs */
-
+static inline int prompt_for_pwd(char* pwd) {
+	pwd = getpass("Enter the password: ");
+	if (pwd == NULL) {
+		printf("Failed to read the password\n");
+		goto out;
+	}
+	const int len = strlen(pwd);
+	if (len < RM_PWD_MIN_LEN ) {
+		printf("The password is too short\n");
+	} else if (len > RM_PWD_MAX_LEN) {
+		printf("The password is too long\n");
+	} else {
+		return 0;
+	}
+out:
+	return -1;
+}
 /**
  * @brief Get the current state of the reference monitor
  * @return the current state of the reference monitor
@@ -90,42 +102,48 @@ static inline int state_get(rm_state_t *u_state) {
  * @return 0 on success, -1 on error
  */
 static inline int state_set(rm_state_t *state) {
-	printf("invoking state_set\n");
 	errno = 0;
-	char *pwd;
-	pwd = "nopwd";
-	// We need to prompt the user to enter the password
-	if (*state == REC_ON || *state == REC_OFF) {
-		pwd = getpass("Enter the password: ");
-		if (strlen(pwd) < RM_PWD_MIN_LEN || strlen(pwd) > RM_PWD_MAX_LEN) {
-			printf("Password can't be empty and must be between %d and %d characters\n",
-				   RM_PWD_MIN_LEN, RM_PWD_MAX_LEN);
-			return -1;
-		}
-		if (pwd == NULL) {
-			return -1;
-		}
+	//TODO: we need to elevate the permission to root setting euid to 0
+	// if the state we want to  is REC_ON or REC_OFF we need to prompt for the password
+	char *pwd = "nopwd";
+	switch (*state) {
+		case REC_ON:
+		case REC_OFF:
+			// prompt for password - this will overwrite whatever is stored in pwd.
+			if(prompt_for_pwd(pwd) != 0) return -1;
+			break;
+		default:
+			break;
 	}
-	printf("syscall with state %d (%p) and password %s\n", *state, &state, pwd);
-	return syscall(__NR_state_set, state, pwd, strlen(pwd));
+	return syscall(__NR_state_set, state, pwd);
 }
-/**
- * @brief Protect a path by adding it to the reference monitor's hash table
- * @param path the path to protect
- * @return 0 on success, -1 on error
- */
-static inline int path_protect(const char *path) {
+
+typedef enum {
+	PROTECT_PATH = 0,
+	UNPROTECT_PATH = 1
+} path_op_t;
+
+static inline int reconfigure(const path_op_t op, const char *path) {
 	errno = 0;
-	return syscall(__NR_path_protect, path);
-}
-/**
- * @brief Unprotect a path by removing it from the reference monitor's hash table
- * @param path the path to unprotect
- * @return 0 on success, -1 on error
- */
-static inline int path_unprotect(const char *path) {
-	errno = 0;
-	return syscall(__NR_path_unprotect, path);
+	// firstly we check the state of the reference monitor. If is ON or OFF it can't be reconfigured
+	rm_state_t state;
+	int ret;
+	ret = state_get(&state);
+	if (ret < 0) {
+		printf("Error: %s\n", strerror(errno));
+		return -1;
+	}
+	if (state == ON || state == OFF) {
+		printf("The reference monitor is in a state that can't be reconfigured\n");
+		return -1;
+	}
+	// The monitor is reconfigurable, asking for the password
+	char *pwd;
+	pwd = "nopwd"; // just to initialize the pointer
+	if(prompt_for_pwd(pwd) != 0) return -1;
+	// all clear, we can reconfigure
+	return syscall(__NR_reconfigure, op, path, strlen(path), );
+	return -1;
 }
 
 #endif
