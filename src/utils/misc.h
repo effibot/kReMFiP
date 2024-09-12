@@ -1,19 +1,17 @@
-//
-// Created by effi on 07/08/24.
-//
+
 
 #ifndef MISC_H
 #define MISC_H
 
-#include "kremfip.h"
+#include "../include/constants.h"
 
 // Function prototypes - no kernel specific code here
-char *state_to_str(rm_state_t state);
-rm_state_t str_to_state(const char *state_str);
-int is_state_valid(rm_state_t state);
+char *state_to_str(state_t state);
+state_t str_to_state(const char *state_str);
+int is_state_valid(state_t state);
 int is_op_valid(path_op_t op);
 #ifdef __KERNEL__
-#include <linux/kernel.h>
+
 /* Some useful debug macros - the message we want to print is like
  * kern_type "[module::file::function::line]: message"
  */

@@ -13,18 +13,25 @@
 #include <linux/mutex.h>
 #include <linux/version.h>
 
-#include "lib/scth.h"
+#include "include/scth.h"
 
-/* This module only works for kernels equal or later than 4.17. */
+/**
+ * Since we have to runtime installs system calls we need to check the kernel version and
+ * limit the module to a specific range of versions. The lower bound is to don't be bothered
+ * with the old kernel versions, while the upper bound is to avoid the changes in the system
+ * call management that happened after the 5.4 version.
+ * TODO: we could check if this could be ported up to the 5.15 version 5.15.154
+ */
+#if LINUX_VERSION_CODE > KERNEL_VERSION(5, 4, 0)
 #if LINUX_VERSION_CODE < KERNEL_VERSION(4, 17, 0)
-#error "This module requires kernel >= 4.17."
+#error "This module requires kernel in range [4.17.x, 5.4.x]"
+#endif
 #endif
 
 extern int nr_sysnis;
-
+extern struct scth_entry *avail_sysnis;
 /* This ensures that operations on the Table are performed atomically. */
 DEFINE_MUTEX(scth_lock);
-
 /* Module initialization routine. */
 static int __init scth_init(void) {
 	void **table_addr = scth_finder();
@@ -33,6 +40,12 @@ static int __init scth_init(void) {
 		return -EFAULT;
 	}
 	printk(KERN_INFO "%s: Ready, %d available entries.\n", MODNAME, nr_sysnis);
+	printk(KERN_CONT "The corrisponding indexes are:\n");
+	int i;
+	for (i = 0; i < nr_sysnis; i++) {
+		printk(KERN_CONT "%d ", avail_sysnis[i].tab_index);
+	}
+	printk(KERN_CONT "\n");
 	return 0;
 }
 

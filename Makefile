@@ -6,24 +6,36 @@
 
 # Module Name
 MODNAME := kremfip
-# Submodule Name
-SCTHNAME := scth
 # Module Version
 VERSION := 0.1
-
-# Current Directory
-PWD := $(shell pwd)
 # Kernel Module Directory
 KDIR ?= /lib/modules/$(shell uname -r)/build
-# Syscall table hacking module directory
-SCTHDIR := $(PWD)/scth
+# Current Directory
+PWD := $(shell pwd)
+# Source Directory
+SRCDIR := src
+# Sub-module Directory
+SCTHDIR := scth
+# Include Directory
+INCLUDEDIR := $(SRCDIR)/include
+# Utilities Directory
+UTILSDIR := $(SRCDIR)/utils
+# Library Directory
+LIBDIR := $(SRCDIR)/lib
+# Test Directory
+TESTDIR := $(PWD)/test
 
-# Kernel Module Source Files
-INCLUDE := include/rm.o include/misc.o include/ht_dllist.o
-UTILS := utils/murmurhash3.o utils/rm_syscalls.o
+# Source files
+SRC := $(SRCDIR)/kremfip_main.o
+# Core Headers
+INCLUDE := $(INCLUDEDIR)/rm.o $(INCLUDEDIR)/syscalls.o
+# Utils stuffs
+UTILS := $(UTILSDIR)/misc.o
+# Library stuffs
+LIBS := $(LIBDIR)/crypto/murmurhash3.o $(LIBDIR)/ht_dll_rcu/ht_dllist.o
 
 # Compiler Flags
-CFLAGS = -Wno-declaration-after-statement -Wno-implicit-fallthrough -Wno-unused-function -O3 -g
+CFLAGS := -Wno-declaration-after-statement -Wno-implicit-fallthrough -Wno-unused-function -O3 -g
 
 # make command invoked from the command line.
 ifeq ($(KERNELRELEASE),)
@@ -31,7 +43,7 @@ ifeq ($(KERNELRELEASE),)
 
 all:
 	cd $(SCTHDIR) && $(MAKE) all
-	$(MAKE) -C $(KDIR) M=$(PWD) modules EXTRA_CFLAGS="$(CFLAGS)" -j$(shell nproc)
+	$(MAKE) -C $(KDIR) M=$(PWD) modules EXTRA_CFLAGS="$(CFLAGS)"
 
 clean:
 	cd $(SCTHDIR) && $(MAKE) clean
@@ -49,9 +61,9 @@ unload:
 else
 # make command invoked from the kernel build system.
 obj-m += $(MODNAME).o
-obj-y += scth/
-$(MODNAME)-y := kremfip_main.o $(INCLUDE) $(UTILS)
-KBUILD_EXTRA_SYMBOLS := $(PWD)/scth/Module.symvers
+obj-y += $(SCTHDIR)/
+$(MODNAME)-y += $(SRC) $(INCLUDE) $(UTILS) $(LIBS)
+KBUILD_EXTRA_SYMBOLS += $(SCTHDIR)/Module.symvers
 ifeq ($(DEBUG), 1)
 ccflags-y += -DDEBUG
 endif

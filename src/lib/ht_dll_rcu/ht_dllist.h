@@ -19,10 +19,13 @@
 #ifndef HT_DLLIST_H
 #define HT_DLLIST_H
 
-#include "kremfip.h"
+#include "../../../src/include/constants.h"
+#include <linux/list.h>
 #include <linux/spinlock.h>
 #include <linux/types.h>
 #include <linux/version.h>
+
+
 /**
  * @brief Grab the lock on every bucket of the hash table
  * @param ht hash table to inspect
@@ -76,19 +79,26 @@ typedef struct _ht_t {
 } __attribute__((aligned(X86_CACHE_LINE_SIZE))) ht_t;
 
 // define function prototypes
-node_t *ht_lookup(ht_t *ht, uint64_t key);
-ht_t *ht_create(size_t size);
-int ht_destroy(ht_t *ht);
-int ht_insert_node(ht_t *ht, node_t *node);
-int ht_delete_node(ht_t *ht, node_t *node);
-size_t *ht_count(ht_t *ht);
-size_t ht_get_count_at(ht_t *ht, size_t index);
-void ht_print(ht_t *ht);
-node_t *node_init(const char *path);
 
-// define the hash function
+// Create a new hash table
+ht_t *ht_create(size_t size);
+// Destroy the hash table
+int ht_destroy(ht_t *ht);
+// Initialize a new node
+node_t *node_init(const char *path);
+// Search for a node in the hash table
+node_t *ht_lookup(ht_t *ht, uint64_t key);
+// Insert a node in the hash table
+int ht_insert_node(ht_t *ht, node_t *node);
+// Delete a node from the hash table
+int ht_delete_node(ht_t *ht, node_t *node);
+// Count the number of elements in the hash table
+size_t *ht_count(ht_t *ht);
+// Count the number of elements in the hash table at a specific index
+size_t ht_get_count_at(ht_t *ht, size_t index);
+// Print the structure of the table
+void ht_print(ht_t *ht);
+// Compute the hash of a string - refer to ./src/lib/crypto/murmurhash3 for more details
 uint64_t compute_hash(const char *key);
 
 #endif //HT_DLLIST_H
-
-/* https://www.oreilly.com/library/view/linux-device-drivers/0596000081/ch10s05.html */

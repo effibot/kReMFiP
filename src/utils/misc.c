@@ -5,7 +5,7 @@
 #else
 #include <string.h>
 #endif
-char *state_to_str(const rm_state_t state) {
+char *state_to_str(const state_t state) {
 	switch (state) {
 	case OFF:
 		return "OFF";
@@ -20,7 +20,7 @@ char *state_to_str(const rm_state_t state) {
 	}
 }
 
-rm_state_t str_to_state(const char *state_str) {
+state_t str_to_state(const char *state_str) {
 	if (strcmp(state_str, "OFF") == 0) {
 		return OFF;
 	}
@@ -42,7 +42,7 @@ rm_state_t str_to_state(const char *state_str) {
  * @param state
  * @return bool
  */
-int is_state_valid(const rm_state_t state) {
+int is_state_valid(const state_t state) {
 	return state == OFF || state == ON || state == REC_OFF || state == REC_ON;
 }
 int is_op_valid(const path_op_t op) {

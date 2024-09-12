@@ -12,8 +12,7 @@
  */
 
 #include "rm.h"
-#include "misc.h"
-#include "state.h"
+#include "../utils/misc.h"
 #include <crypto/hash.h>
 #include <crypto/sha256_base.h>
 #include <linux/crypto.h>
@@ -23,7 +22,7 @@
 #include <linux/init.h>
 #include <linux/kernel.h>
 #include <linux/kobject.h>
-#include <linux/memory.h> // For secure memory zeroing
+#include <linux/memory.h>
 #include <linux/module.h>
 #include <linux/slab.h>
 #include <linux/string.h>
@@ -80,7 +79,7 @@ rm_t *rm_init(void) {
 		return NULL;
 	}
 	// Set the default values
-	rm->name = RMFS_DEFAULT_NAME;
+	rm->name = RM_DEFAULT_NAME;
 	rm->state = RM_INIT_STATE;
 	rm->id = rnd_id();
 	// Initialize the hash table and be sure that all goes well
@@ -121,7 +120,14 @@ rm_t *rm_init(void) {
 		kfree(rm);
 		return NULL;
 	}
-	INFO("Hash table initialized");
+	memzero_explicit(module_pwd, strlen(module_pwd));
+	kfree(module_pwd);
+#ifdef DEBUG
+	INFO("Password hash stored successfully\n");
+#endif
+#ifdef DEBUG
+	INFO("Reference Monitor Initialized successfully\n");
+#endif
 	return rm;
 }
 /**
@@ -132,13 +138,12 @@ rm_t *rm_init(void) {
  * @param state The new state of the reference monitor
  * @return int 0 if the state is set successfully, an error code otherwise
  */
-int set_state(rm_t *rm, const rm_state_t state) {
+int set_state(rm_t *rm, const state_t state) {
 	// safety checks
 	if(unlikely(rm == NULL)) {
 		WARNING("Reference monitor is NULL");
 		return -EINVAL;
 	}
-
 	// set the state
 #ifdef DEBUG
 	INFO("Setting the state to %s\n", state_to_str(state));
@@ -146,8 +151,14 @@ int set_state(rm_t *rm, const rm_state_t state) {
 	rm->state = state;
 	return 0;
 }
-
-rm_state_t get_state(const rm_t *rm) {
+/**
+* @brief Get the state of the reference monitor
+* Since this is the getter function, we avoid to make checks here,
+* as they should be done in the caller function.
+* @param rm The reference monitor structure
+* @return state_t The state of the reference monitor
+*/
+state_t get_state(const rm_t *rm) {
 	// assert that the reference monitor is not NULL
 	if (rm == NULL) {
 		INFO("Reference monitor is NULL");
@@ -157,6 +168,12 @@ rm_state_t get_state(const rm_t *rm) {
 	return rm->state;
 }
 
+/**
+* @brief Release the reference monitor allocated memory
+* This function releases the memory allocated for the reference monitor
+* removing the associated sysfs file and freeing the hash table.
+* @param rm The reference monitor structure
+*/
 void rm_free(const rm_t *rm) {
 	// assert that the reference monitor is not NULL
 	if (rm == NULL) {
@@ -280,47 +297,39 @@ bool verify_pwd(const char *input_str) {
 		WARNING("Input string is NULL");
 		return false;
 	}
-	INFO("Input string is not NULL, performing hash");
 	// Hash the input string
 	u8 *input_hash = kzalloc(RM_PWD_HASH_LEN*sizeof(u8), GFP_KERNEL);
 	if (__rm_hash_pwd(input_str, pwd_salt, input_hash)) {
 		WARNING("Failed to hash the input string");
 		return false;
 	}
-	INFO("Hash computed successfully");
 	// Retrieve the stored hash from the sysfs
 	struct file *f = filp_open("/sys/module/kremfip/rm_pwd_hash/rm_pwd_hash", O_RDONLY, 0);
 	if (IS_ERR(f)) {
 		WARNING("Failed to open the sysfs file");
 		return false;
 	}
-	INFO("Sysfs file opened successfully");
 	// Read the stored hash from the sysfs
 	char *stored_hash;
 	size_t stored_hash_len = RM_PWD_HASH_LEN * 2 + 1;
 	stored_hash = kzalloc(stored_hash_len*sizeof(char), GFP_KERNEL);
 	const ssize_t bytes_read = kernel_read(f, stored_hash, RM_PWD_HASH_LEN * 2, &f->f_pos);
 	filp_close(f, NULL);
-
 	if (bytes_read < 0) {
 		WARNING("Failed to read the stored hash from the sysfs file");
 		return false;
 	}
-	INFO("Stored hash read successfully");
 	// Compare the hashes
-	INFO("Comparing hashes: %s vs %s", hex_to_str(input_hash, RM_PWD_HASH_LEN), stored_hash);
 	const bool cmp =
 		memcmp(hex_to_str(input_hash, RM_PWD_HASH_LEN), stored_hash, RM_PWD_HASH_LEN) == 0;
+#ifdef DEBUG
 	INFO("Hashes compared successfully");
+#endif
 	// Clean up the stored hash
 	memzero_explicit(stored_hash, stored_hash_len);
-	INFO("memzeroed stored hash");
 	memzero_explicit(input_hash, RM_PWD_HASH_LEN);
-	INFO("memzeroed input hash");
 	kfree(stored_hash);
-	INFO("clean up mem");
 	kfree(input_hash);
-	INFO("clean up mem");
 	return cmp;
 }
 
@@ -334,7 +343,7 @@ bool verify_pwd(const char *input_str) {
  * @param buf The buffer to store the password hash
  * @return ssize_t The number of bytes written
  */
-ssize_t rm_pwd_hash_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf) {
+static inline ssize_t rm_pwd_hash_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf) {
 	// just copy the password hash to the buffer as a null-terminated string
 	return snprintf(buf, RM_PWD_HASH_LEN * 2 + 1, "%s", hex_to_str(rm_pwd_hash, RM_PWD_HASH_LEN));
 }

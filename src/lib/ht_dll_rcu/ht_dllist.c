@@ -3,8 +3,8 @@
 //
 
 #include "ht_dllist.h"
-#include "../utils/murmurhash3.h"
-#include "misc.h"
+#include "../crypto/murmurhash3.h"
+#include "../../utils/misc.h"
 #include <linux/fs.h>
 #include <linux/hash.h>
 #include <linux/kernel.h>

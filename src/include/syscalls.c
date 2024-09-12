@@ -1,16 +1,15 @@
 /**
- * @file rm_syscalls.c
+ * @file syscalls.c
  * @brief Source Code for the module's system calls
  */
 
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/slab.h>
-#include "../include/kremfip.h"
-#include "../include/misc.h"
+#include "kremfip.h"
+#include "../utils/misc.h"
 #include "../include/rm.h"
-#include "../include/ht_dllist.h"
-#include "rm_syscalls.h"
+#include "../lib/ht_dll_rcu/ht_dllist.h"
 
 #include <linux/uaccess.h>
 
@@ -24,7 +23,7 @@ extern rm_t *rm_p;
  * @brief System call to get the current state of the reference monitor
  * @return the current state of the reference monitor
  */
-int rm_state_get(rm_state_t __user *u_state) {
+int rm_state_get(state_t __user *u_state) {
 	// Check if the reference monitor is initialized
 	if (unlikely(rm_p == NULL)) {
 #ifdef DEBUG
@@ -33,13 +32,13 @@ int rm_state_get(rm_state_t __user *u_state) {
 		return -EINVAL;
 	}
 	// access to the kernel space where the reference monitor is stored
-	rm_state_t state;
+	state_t state;
 	int ret;
 	state = get_state(rm_p);
 #ifdef DEBUG
 	INFO("got state %d\n", state);
 #endif
-	ret = copy_to_user(u_state, &state, sizeof(rm_state_t));
+	ret = copy_to_user(u_state, &state, sizeof(state_t));
 	asm volatile("mfence" ::: "memory");
 #ifdef DEBUG
 	INFO("RET: %d\n", ret);
@@ -53,14 +52,14 @@ int rm_state_get(rm_state_t __user *u_state) {
 
 /**
  * @brief System call to set the state of the reference monitor.
- * The state can be in one of the four states defined in state.h.
+ * The state can be in one of the four states defined in constants.h.
  * If the state is of reconfigurable type (REC_x), then we need to check
  * the monitor's pwd hash.
  * @param state the new state of the reference monitor
  * @param pwd the password to set the monitor to REC_ON or REC_OFF
  * @return 0 on success, -1 on error
  */
-int rm_state_set(const rm_state_t __user *u_state, const char __user *pwd, size_t pwd_len) {
+int rm_state_set(const state_t __user *u_state, const char __user *pwd, size_t pwd_len) {
 	INFO("null check");
 	// Check if the reference monitor is initialized
 	if (unlikely(rm_p == NULL)) {
@@ -71,10 +70,10 @@ int rm_state_set(const rm_state_t __user *u_state, const char __user *pwd, size_
 	}
 	INFO("null check");
 	// Depending on the state, we need to check the password
-	rm_state_t *new_state;
-	new_state = kzalloc(sizeof(rm_state_t), GFP_KERNEL);
+	state_t *new_state;
+	new_state = kzalloc(sizeof(state_t), GFP_KERNEL);
 	int ret;
-	ret = copy_from_user(new_state, u_state, sizeof(rm_state_t));
+	ret = copy_from_user(new_state, u_state, sizeof(state_t));
 	asm volatile("mfence" ::: "memory");
 	if (ret != 0) {
 		WARNING("failed to copy from user\n");
@@ -248,4 +247,57 @@ int rm_reconfigure(const path_op_t __user *op, const char __user *path, size_t p
 	kfree(kpath);
 	kfree(kpwd);
 	return 0;
+}
+
+
+__SYSCALL_DEFINEx(1, _state_get, state_t __user *, u_state) {
+#ifdef DEBUG
+	INFO("invoking __x64_sys_state_get\n");
+#endif
+	if (!try_module_get(THIS_MODULE))
+		return -ENOSYS;
+	int ret;
+	ret = rm_state_get(u_state);
+	if (ret != 0) {
+		WARNING("failed to copy to user\n");
+		module_put(THIS_MODULE);
+		return -EFAULT;
+	}
+	module_put(THIS_MODULE);
+	return ret;
+}
+
+__SYSCALL_DEFINEx(2, _state_set, const state_t __user *, state, char __user *, pwd) {
+#ifdef DEBUG
+	INFO("Invoking __x64_sys_state_set\n");
+#endif
+	if (!try_module_get(THIS_MODULE))
+		return -ENOSYS;
+	int ret;
+	INFO("do syscall state_set\n");
+	ret = rm_state_set(state, pwd, strnlen_user(pwd, PAGE_SIZE));
+	if (ret != 0) {
+		WARNING("failed to copy to user with error: %d\n", ret);
+		module_put(THIS_MODULE);
+		return -EFAULT;
+	}
+	module_put(THIS_MODULE);
+	return ret;
+}
+
+__SYSCALL_DEFINEx(3, _reconfigure, const path_op_t __user*, op, const char __user *, path, const char __user*, pwd) {
+#ifdef DEBUG
+	INFO("Invoking __x64_sys_reconfigure\n");
+#endif
+	if(!try_module_get(THIS_MODULE))
+		return -ENOSYS;
+	int ret;
+	ret = rm_reconfigure(op, path, strnlen_user(path, PAGE_SIZE), pwd, strnlen_user(pwd, PAGE_SIZE));
+	if (ret != 0) {
+		WARNING("failed to copy to user with error: %d\n", ret);
+		module_put(THIS_MODULE);
+		return -EFAULT;
+	}
+	module_put(THIS_MODULE);
+	return ret;
 }
