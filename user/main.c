@@ -11,12 +11,12 @@
 #include <termios.h>
 #include <unistd.h>
 
-#include "../include/kremfip.h"
-#include "../include/misc.h"
-#include "../include/state.h"
+#include "../src/include/kremfip.h"
+#include "../src/utils/misc.h"
+
 int main(int argc, char *argv[]) {
-	rm_state_t *state;
-	state = calloc(1, sizeof(rm_state_t));
+	state_t *state;
+	state = calloc(1, sizeof(state_t));
 	int ret;
 
 	ret = state_get(state);
@@ -26,7 +26,7 @@ int main(int argc, char *argv[]) {
 	}
 	printf("%d\n", *state);
 	printf("Current state: %s\n", state_to_str(*state));
-	rm_state_t new_state = REC_OFF;
+	state_t new_state = REC_OFF;
 	ret = state_set(&new_state);
 	if (ret < 0) {
 		printf("Error: %s\n", strerror(errno));

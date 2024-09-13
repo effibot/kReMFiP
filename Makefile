@@ -24,13 +24,16 @@ UTILSDIR := $(SRCDIR)/utils
 LIBDIR := $(SRCDIR)/lib
 # Test Directory
 TESTDIR := $(PWD)/test
+# User Directory
+USERDIR := $(PWD)/user
+
 
 # Source files
 SRC := $(SRCDIR)/kremfip_main.o
 # Core Headers
 INCLUDE := $(INCLUDEDIR)/rm.o $(INCLUDEDIR)/syscalls.o
 # Utils stuffs
-UTILS := $(UTILSDIR)/misc.o
+UTILS := $(UTILSDIR)/misc.o $(UTILSDIR)/pathmgm.o
 # Library stuffs
 LIBS := $(LIBDIR)/crypto/murmurhash3.o $(LIBDIR)/ht_dll_rcu/ht_dllist.o
 
@@ -39,25 +42,28 @@ CFLAGS := -Wno-declaration-after-statement -Wno-implicit-fallthrough -Wno-unused
 
 # make command invoked from the command line.
 ifeq ($(KERNELRELEASE),)
-.PHONY: all clean load unload
+.PHONY: all clean load unload user
 
 all:
-	cd $(SCTHDIR) && $(MAKE) all
+	@cd $(SCTHDIR) && $(MAKE) all
 	$(MAKE) -C $(KDIR) M=$(PWD) modules EXTRA_CFLAGS="$(CFLAGS)"
 
 clean:
-	cd $(SCTHDIR) && $(MAKE) clean
+	@cd $(SCTHDIR) && $(MAKE) clean
 	$(MAKE) -C $(KDIR) M=$(PWD) clean
+	@if [ -f $(USERDIR)/user_test ]; then rm $(USERDIR)/user_test; fi
 
 load:
-	echo "$(MODNAME) Loading..."
+	@echo "$(MODNAME) Loading..."
 	cd $(SCTHDIR) && $(MAKE) load
 	sudo insmod $(MODNAME).ko
 
 unload:
-	echo "$(MODNAME) Removing..."
+	@echo "$(MODNAME) Removing..."
 	cd $(SCTHDIR) && $(MAKE) unload
 	sudo rmmod $(MODNAME).ko
+user:
+	@cd $(USERDIR) && $(MAKE) all
 else
 # make command invoked from the kernel build system.
 obj-m += $(MODNAME).o
