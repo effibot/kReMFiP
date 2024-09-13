@@ -17,6 +17,6 @@ typedef struct _struct_A {
 } struct_A;
 
 
-void* init(void);
+//void* init(void);
 
 #endif //TEST_H

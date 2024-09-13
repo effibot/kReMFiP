@@ -5,61 +5,65 @@
 
 
 # Module Name
-MODNAME=kremfip
-
+MODNAME := kremfip
 # Module Version
-VERSION=0.1
-
-# Compiler
-CC=gcc
-
-
+VERSION := 0.1
+# Kernel Module Directory
+KDIR ?= /lib/modules/$(shell uname -r)/build
 # Current Directory
 PWD := $(shell pwd)
+# Source Directory
+SRCDIR := src
+# Sub-module Directory
+SCTHDIR := scth
+# Include Directory
+INCLUDEDIR := $(SRCDIR)/include
+# Utilities Directory
+UTILSDIR := $(SRCDIR)/utils
+# Library Directory
+LIBDIR := $(SRCDIR)/lib
+# Test Directory
+TESTDIR := $(PWD)/test
 
-# External libraries to link
-IDIR=$(PWD)/../include
-INCLUDES=-I$(IDIR)
-
-# Kernel Module Directory
-KDIR := /lib/modules/$(shell uname -r)/build
-
+# Source files
+SRC := $(SRCDIR)/kremfip_main.o
+# Core Headers
+INCLUDE := $(INCLUDEDIR)/rm.o $(INCLUDEDIR)/syscalls.o
+# Utils stuffs
+UTILS := $(UTILSDIR)/misc.o
+# Library stuffs
+LIBS := $(LIBDIR)/crypto/murmurhash3.o $(LIBDIR)/ht_dll_rcu/ht_dllist.o
 
 # Compiler Flags
-CFLAGS=-Wall -Wextra -Werror $(INCLUDES)
-LDFLAGS=-L$(PWD)/../include
+CFLAGS := -Wno-declaration-after-statement -Wno-implicit-fallthrough -Wno-unused-function -O3 -g
 
 # make command invoked from the command line.
 ifeq ($(KERNELRELEASE),)
-.PHONY: all install clean uninstall load unload
+.PHONY: all clean load unload
 
 all:
-	$(MAKE) -C $(KDIR) M=$(PWD) modules
+	cd $(SCTHDIR) && $(MAKE) all
+	$(MAKE) -C $(KDIR) M=$(PWD) modules EXTRA_CFLAGS="$(CFLAGS)"
 
 clean:
-	$(MAKE) -C /lib/modules/$(shell uname -r)/build M=$(PWD) clean
-
-install:
-	$(MAKE) -C /lib/modules/$(shell uname -r)/build M=$(PWD) modules_install
-	ln -s /lib/modules/$(shell uname -r)/extra/$(MODNAME).ko /lib/modules/$(shell uname -r)
-	depmod -a
-
-uninstall:
-	rm /lib/modules/$(shell uname -r)/extra/$(MODNAME).ko
-	rm /lib/modules/$(shell uname -r)/$(MODNAME).ko
-	depmod -a
+	cd $(SCTHDIR) && $(MAKE) clean
+	$(MAKE) -C $(KDIR) M=$(PWD) clean
 
 load:
 	echo "$(MODNAME) Loading..."
+	cd $(SCTHDIR) && $(MAKE) load
 	sudo insmod $(MODNAME).ko
 
 unload:
 	echo "$(MODNAME) Removing..."
+	cd $(SCTHDIR) && $(MAKE) unload
 	sudo rmmod $(MODNAME).ko
 else
 # make command invoked from the kernel build system.
 obj-m += $(MODNAME).o
-$(MODNAME)-y := kremfip_main.o include/rmfs.o include/utils.o include/ht_dllist.o #include/rcu_example_list.o
+obj-y += $(SCTHDIR)/
+$(MODNAME)-y += $(SRC) $(INCLUDE) $(UTILS) $(LIBS)
+KBUILD_EXTRA_SYMBOLS += $(SCTHDIR)/Module.symvers
 ifeq ($(DEBUG), 1)
 ccflags-y += -DDEBUG
 endif
