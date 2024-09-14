@@ -48,9 +48,11 @@ The the computation of the cryptographic hash and the writing of the above tuple
 # Project ideas
 
 The reference monitor is implemented as a data structure that is maintained in the kernel space. The data structure
-keeps track of the protected paths using an hash table with chaining and the linked list's implementation is based on the
+keeps track of the protected paths using an hash table with chaining and the linked list's implementation is based on
+the
 kernl's RCU API for synchronization.
 Other references kept in the struct are:
+
 - the current state of the reference monitor `state`
 - the kobject that is used to expose the hash of the reference monitor's password
 - the workqueue that is used to perform the deferred work

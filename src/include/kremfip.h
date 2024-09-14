@@ -7,15 +7,16 @@
 #define KREMFIP_H
 
 #include "constants.h"
+//#define DEBUG
 
 #ifdef __KERNEL__
 /* Kernel Module Header Section */
-#include <linux/syscalls.h>
 #include "../utils/misc.h"
+#include <linux/syscalls.h>
 // System Calls Prototypes Internal Functions
 int rm_state_get(state_t __user *u_state);
-int rm_state_set(const state_t __user *u_state, const char __user *password, size_t pwd_len);
-int rm_reconfigure(const path_op_t __user *op, const char __user *path, size_t path_len, const char __user *password, size_t pwd_len);
+int rm_state_set(const state_t __user *u_state, const char __user *pwd);
+int rm_reconfigure(const path_op_t __user *op, const char __user *path, const char __user *pwd);
 
 #else
 /* User Space Header Section */
@@ -70,7 +71,7 @@ static inline int state_set(state_t *state) {
 	errno = 0;
 	//TODO: we need to elevate the permission to root setting euid to 0
 	// if the state we want to  is REC_ON or REC_OFF we need to prompt for the password
-	char *pwd = "nopwd";
+	char *pwd = RM_DEF_PWD;
 	switch (*state) {
 	case REC_ON:
 		printf("Setting the state to REC_ON\n");

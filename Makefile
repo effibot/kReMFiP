@@ -45,7 +45,6 @@ ifeq ($(KERNELRELEASE),)
 .PHONY: all clean load unload user
 
 all:
-	@cd $(SCTHDIR) && $(MAKE) all
 	$(MAKE) -C $(KDIR) M=$(PWD) modules EXTRA_CFLAGS="$(CFLAGS)"
 
 clean:

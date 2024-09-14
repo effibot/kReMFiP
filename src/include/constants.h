@@ -31,10 +31,10 @@ typedef enum _rm_state_t {
 * @brief The possible operations that can be performed on a path.
 * The reference monitor can protect or unprotect a path.
 */
-typedef enum _rm_path_op_t {
-	PROTECT_PATH = 0,
-	UNPROTECT_PATH = 1
-} path_op_t;
+typedef enum _rm_path_op_t { PROTECT_PATH = 0, UNPROTECT_PATH = 1 } path_op_t;
+
+// Default password for the Monitor
+#define RM_DEF_PWD "nopwd"
 
 // THIS SECTION IS ONLY FOR THE KERNEL SPACE
 #ifdef __KERNEL__
@@ -89,7 +89,7 @@ printk(KERN_INFO "The size of the hash table is too big. We'll reduce to 32 bits
 
 // Define the system call numbers
 #ifndef __NR_state_get
-#define __NR_state_get 134	// retrieves the state of the reference monitor
+#define __NR_state_get 134 // retrieves the state of the reference monitor
 #endif
 
 #ifndef __NR_state_set

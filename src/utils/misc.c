@@ -2,6 +2,7 @@
 #ifdef __KERNEL__
 #include <linux/random.h>
 #include <linux/slab.h>
+#include <linux/uaccess.h>
 #else
 #include <string.h>
 #endif
@@ -50,6 +51,7 @@ int is_op_valid(const path_op_t op) {
 }
 
 #ifdef __KERNEL__
+
 /**
  * @brief Generates a random ID.
  *
@@ -78,7 +80,7 @@ unsigned int rnd_id(void) {
  */
 char *hex_to_str(const unsigned char *hex, const size_t len) {
 	// be sure the hex string is not empty
-	if (strlen(hex) == 0) {
+	if (strlen((char *)hex) == 0) {
 		return NULL;
 	}
 	// allocate the string -- 2 hex characters for each byte
@@ -90,4 +92,35 @@ char *hex_to_str(const unsigned char *hex, const size_t len) {
 	str[len * 2] = '\0'; // null terminate the string
 	return str;
 }
+
+/**
+ * @brief Map user space buffer to kernel space.
+ * @param ubuff The user space buffer
+ * @param len The length of the buffer in terms of bytes.
+ * This depends on the type of the buffer and the caller must calculate it correctly.
+ * @return The kernel space buffer or an error code
+ */
+inline void *map_user_buffer(const void __user *ubuff, size_t len) {
+	INFO("mapping user buffer to kernel space\n");
+	// safety checks
+	if (ubuff == NULL) {
+		return ERR_PTR(-EINVAL);
+	}
+	int ret;
+	// allocate the kernel space buffer
+	void *kbuff = kmalloc(len * sizeof(void), GFP_KERNEL);
+	if (kbuff == NULL) {
+		return ERR_PTR(-ENOMEM);
+	}
+	// copy the user space buffer to the kernel space buffer
+	ret = copy_from_user(kbuff, ubuff, len);
+	asm __volatile__("mfence" ::: "memory");
+	if (ret != 0) {
+		kfree(kbuff);
+		return ERR_PTR(-EFAULT);
+	}
+	// return the kernel space buffer
+	return kbuff;
+}
+
 #endif

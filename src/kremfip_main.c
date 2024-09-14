@@ -10,10 +10,10 @@
  */
 
 #define EXPORT_SYMTAB
-#include "include/kremfip.h"
-#include "utils/misc.h"
-#include "include/rm.h"
 #include "../scth/src/include/scth.h"
+#include "include/kremfip.h"
+#include "include/rm.h"
+#include "utils/misc.h"
 #include <linux/compiler.h>
 #include <linux/delay.h>
 #include <linux/errno.h>
@@ -39,14 +39,10 @@
 #endif
 #endif
 //#define TEST
-
 /* Reference monitor pointer. */
 rm_t *rm_p = NULL;
 
 // Retrieve the syscalls function pointers
-extern void* __x64_sys_state_get;
-extern void* __x64_sys_state_set;
-extern void* __x64_sys_reconfigure;
 
 #ifdef TEST
 #define RD_THREAD 1
@@ -119,11 +115,62 @@ out:
 int state_get_nr = -1;
 int state_set_nr = -1;
 int reconfigure_nr = -1;
+
+__SYSCALL_DEFINEx(1, _state_get, state_t __user *, u_state) {
+#ifdef DEBUG
+	INFO("invoking __x64_sys_state_get\n");
+#endif
+	if (!try_module_get(THIS_MODULE))
+		return -ENOSYS;
+	int ret;
+	ret = rm_state_get(u_state);
+	if (ret != 0) {
+		WARNING("failed to copy to user\n");
+		module_put(THIS_MODULE);
+		return -EFAULT;
+	}
+	module_put(THIS_MODULE);
+	return ret;
+}
+
+__SYSCALL_DEFINEx(2, _state_set, const state_t __user *, state, char __user *, pwd) {
+#ifdef DEBUG
+	INFO("Invoking __x64_sys_state_set\n");
+#endif
+	if (!try_module_get(THIS_MODULE))
+		return -ENOSYS;
+	int ret;
+	INFO("do syscall state_set\n");
+	ret = rm_state_set(state, pwd);
+	if (ret != 0) {
+		WARNING("failed to copy to user with error: %d\n", ret);
+		module_put(THIS_MODULE);
+		return -EFAULT;
+	}
+	module_put(THIS_MODULE);
+	return ret;
+}
+
+__SYSCALL_DEFINEx(3, _reconfigure, const path_op_t __user *, op, const char __user *, path,
+				  const char __user *, pwd) {
+#ifdef DEBUG
+	INFO("Invoking __x64_sys_reconfigure\n");
+#endif
+	if (!try_module_get(THIS_MODULE))
+		return -ENOSYS;
+	int ret;
+	ret = rm_reconfigure(op, path, pwd);
+	if (ret != 0) {
+		WARNING("failed to copy to user with error: %d\n", ret);
+		module_put(THIS_MODULE);
+		return -EFAULT;
+	}
+	module_put(THIS_MODULE);
+	return ret;
+}
+
 /* Required module's reference. */
 struct module *scth_mod = NULL;
-
-
-
 
 static int __init kremfip_init(void) {
 	// Lock the SCTH module.

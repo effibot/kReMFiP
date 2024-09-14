@@ -3,13 +3,12 @@
 //
 
 #include "ht_dllist.h"
-#include "../crypto/murmurhash3.h"
 #include "../../utils/misc.h"
+#include "../../utils/pathmgm.h"
+#include "../crypto/murmurhash3.h"
 #include <linux/fs.h>
-#include <linux/hash.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
-#include <linux/namei.h>
 #include <linux/rculist.h>
 #include <linux/rcupdate.h>
 #include <linux/slab.h>
@@ -26,8 +25,6 @@ size_t __ht_count_list(node_t *list); // count the number of elements in the giv
 
 // RCU independent functions
 size_t __ht_index(uint64_t key); // get the bucket were the node should be in the hash table
-bool __is_path_valid(const char *path); // check if the path is valid
-bool __path_exists(const char *path); // check if the path exists in the file system
 
 /**
  * @name ht_get_instance
@@ -378,82 +375,16 @@ uint64_t compute_hash(const char *key) {
 		return -EINVAL;
 	}
 	//return murmur3_x86_32(key, strlen(key), HT_SEED);
-	uint64_t *digest = kzalloc(2 * sizeof(digest), GFP_KERNEL);
+	uint64_t *digest;
 	digest = murmur3_x64_128(key, strlen(key), HT_SEED);
 	return digest[0] ^ digest[1];
 }
 
 /**
- * @name __path_exists
- * @brief Check if the path exists in the file system.
- * @param path - the path to be checked
- * @return true if the path exists, false otherwise
- */
-bool __path_exists(const char *path) {
-	if (unlikely(path == NULL)) {
-#ifdef DEBUG
-		INFO("Passing null path (%p)\n", path);
-#endif
-		goto not_exists;
-	}
-	struct path p;
-	const int ret = kern_path(path, LOOKUP_FOLLOW, &p);
-	if (ret < 0) {
-		INFO("Path %s does not exist\n", path);
-		goto not_exists;
-	}
-	path_put(&p);
-	return true;
-not_exists:
-	return false;
-}
-
-/**
- * @name __is_path_valid
- * @brief Check if the path is valid.
- * @param path - the path to be checked
- * @return true if the path is valid, false otherwise
- */
-bool __is_path_valid(const char *path) {
-	if (unlikely(path == NULL)) {
-#ifdef DEBUG
-		INFO("Passing null path (%p)\n", path);
-#endif
-		return false;
-	}
-
-	const size_t len = strnlen(path, PATH_MAX);
-
-	// Check for empty path
-	if (len == 0) {
-		INFO("Empty path\n");
-		return false;
-	}
-
-	// Check for root path
-	if (strcmp(path, "/") == 0) {
-		INFO("Root path\n");
-		return false;
-	}
-
-	// Check for paths like . or ..
-	if (strcmp(path, ".") == 0 || strcmp(path, "..") == 0) {
-		INFO("Path starts with . or ..\n");
-		return false;
-	}
-
-	// Check for double slashes
-	if (strstr(path, "//") != NULL) {
-		INFO("Double slashes in the path\n");
-		return false;
-	}
-
-	return true;
-}
-
-/**
  * @name node_init
  * @brief Initialize a new node with the given path.
+ * We don't check if the path is valid and exists in the filesystem, we assume that the caller
+ * already checked this.
  * @param path - the path of the file
  * @return the new node
  */
@@ -462,15 +393,7 @@ node_t *node_init(const char *path) {
 		INFO("Empty path\n");
 		return NULL;
 	}
-	// check if the inserted path is valid and exists
-	if (!__is_path_valid(path)) {
-		INFO("Invalid path %s\n", path);
-		return NULL;
-	}
-	if (!__path_exists(path)) {
-		INFO("Path %s does not exist\n", path);
-		return NULL;
-	}
+
 	// allocate memory for the node
 	node_t *node = kzalloc(sizeof(*node), GFP_KERNEL);
 	if (unlikely(node == NULL)) {
@@ -484,7 +407,8 @@ node_t *node_init(const char *path) {
 		return NULL;
 	}
 	// copy the path
-	int ret = strscpy(node->path, path, strlen(path) + 1);
+	int ret;
+	ret = strscpy(node->path, path, strlen(path) + 1);
 	if (ret != strlen(path)) {
 		INFO("Failed to copy the path\n");
 		kfree(node->path);
