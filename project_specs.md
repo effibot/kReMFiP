@@ -35,7 +35,6 @@ protected file system path is attempted:
 	<li>the effective user-id
 	<li>the program path-name that is currently attempting the open
 	<li> a cryptographic hash of the program file content
-
 </ul>
 
 The the computation of the cryptographic hash and the writing of the above tuple should be carried in deferred work.
@@ -44,26 +43,3 @@ The the computation of the cryptographic hash and the writing of the above tuple
 
 > REFS:
 [Linux Kernel Doc](https://www.kernel.org/doc/html/latest/index.html)
-
-# Project ideas
-
-The reference monitor is implemented as a data structure that is maintained in the kernel space. The data structure
-keeps track of the protected paths using an hash table with chaining and the linked list's implementation is based on the
-kernl's RCU API for synchronization.
-Other references kept in the struct are:
-- the current state of the reference monitor `state`
-- the kobject that is used to expose the hash of the reference monitor's password
-- the workqueue that is used to perform the deferred work
-- a pointer to the device that is used to write the log file
-
-# TODOs:
-
-- [x] defined the data structure
-- [x] defined the hash table and the linked list
-- [x] implement password hash and check
-- [ ] implement the deferred work
-- [ ] implement the log file writing
-- [ ] implement the device for the log file
-- [x] implement the kobject for the password hash
-- [ ] add syscalls to interact with the reference monitor
-- [ ] add permission changing when reconfiguring the reference monitor
