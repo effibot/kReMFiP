@@ -18,6 +18,8 @@
 #include "../utils/x86_utils.h"
 // Add the header for the library.
 #include "scth.h"
+// link function implementation to external library headers.
+#include "../../headers/scth_lib.h"
 /**
  * @brief Mutex to ensure atomic operations on the system call table.
  * Is defined in the header file to be visible to every module.

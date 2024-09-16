@@ -4,6 +4,7 @@
 
 // Include the library that is used to hack the kernel
 #include "../src/include/scth.h"
+#include "../headers/scth_lib.h"
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/syscalls.h>

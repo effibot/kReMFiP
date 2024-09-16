@@ -22,13 +22,7 @@ extern rm_t *rm_p;
  * @return the current state of the reference monitor
  */
 inline int rm_state_get(state_t __user *u_state) {
-	struct cred *cred;
-	cred = prepare_creds();
-	if(cred == NULL) {
-		WARNING("failed to prepare credentials\n");
-		return -EFAULT;
-	}
-	INFO("do_state_get with uid: %d, euid: %d\n", cred->uid.val, cred->euid.val);
+	INFO("do_state_get with euid: %d\n", get_euid());
 
 	// Check if the reference monitor is initialized
 	if (unlikely(rm_p == NULL)) {

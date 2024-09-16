@@ -10,7 +10,7 @@
 #include <string.h>
 #include <termios.h>
 #include <unistd.h>
-
+#include <sys/types.h>
 #include "../src/include/kremfip.h"
 #include "../src/utils/misc.h"
 
@@ -18,12 +18,13 @@ int main(int argc, char *argv[]) {
 	state_t *state;
 	state = calloc(1, sizeof(state_t));
 	int ret;
-
+	printf("euid: %d\n", geteuid());
 	ret = state_get(state);
 	if (ret < 0) {
 		printf("Error: %s\n", strerror(errno));
 		return -1;
 	}
+	printf("euif: %d\n", geteuid());
 	printf("%d\n", *state);
 	printf("Current state: %s\n", state_to_str(*state));
     return 0;

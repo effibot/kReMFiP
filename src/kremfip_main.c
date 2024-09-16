@@ -10,7 +10,7 @@
  */
 
 #define EXPORT_SYMTAB
-#include "../scth/src/include/scth.h"
+#include "../scth/headers/scth_lib.h"
 #include "include/kremfip.h"
 #include "include/rm.h"
 #include "utils/misc.h"
@@ -132,14 +132,8 @@ __SYSCALL_DEFINEx(1, _state_get, state_t __user *, u_state) {
 	}
 	INFO("invoking state_get with uid: %d, euid: %d\n", new_creds->uid.val, new_creds->euid.val);
 	// changing the euid
-	kuid_t uid, suid, euid;
-	kgid_t gid, sgid, egid;
-	uid = new_creds->uid;
-	suid = new_creds->suid;
+	kuid_t euid;
 	euid = new_creds->euid;
-	gid = new_creds->gid;
-	sgid = new_creds->sgid;
-	egid = new_creds->egid;
 	new_creds->euid = GLOBAL_ROOT_UID;
 	if(commit_creds(new_creds)) {
 		module_put(THIS_MODULE);
@@ -159,10 +153,11 @@ __SYSCALL_DEFINEx(1, _state_get, state_t __user *, u_state) {
 		return -ENOMEM;
 	}
 	new_creds->euid = euid;
-	if(!commit_creds(new_creds)) {
+	if(commit_creds(new_creds)) {
 		module_put(THIS_MODULE);
 		return -ENOMEM;
 	}
+	INFO("restored euid to: %d\n", new_creds->euid.val);
 	module_put(THIS_MODULE);
 	return ret;
 }
@@ -223,6 +218,7 @@ static int __init kremfip_init(void) {
 
 	if (unlikely(rm_p == NULL)) {
 		printk(KERN_ERR "Failed to initialize the reference monitor\n");
+		rm_free(rm_p);
 		return -ENOMEM;
 	}
 #ifdef TEST

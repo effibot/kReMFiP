@@ -14,6 +14,7 @@
 #include <linux/version.h>
 
 #include "include/scth.h"
+#include "../headers/scth_lib.h"
 
 /**
  * Since we have to runtime installs system calls we need to check the kernel version and

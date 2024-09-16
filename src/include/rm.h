@@ -30,5 +30,4 @@ rm_t *rm_init(void);
 int set_state(rm_t *rm, state_t state);
 state_t get_state(const rm_t *rm);
 void rm_free(const rm_t *rm);
-bool verify_pwd(const char *input_str);
 #endif //RMFS_H
