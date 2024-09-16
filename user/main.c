@@ -26,6 +26,7 @@ int main(int argc, char *argv[]) {
 	}
 	printf("%d\n", *state);
 	printf("Current state: %s\n", state_to_str(*state));
+    return 0;
 	state_t new_state = REC_OFF;
 	ret = state_set(&new_state);
 	if (ret < 0) {

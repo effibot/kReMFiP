@@ -123,11 +123,45 @@ __SYSCALL_DEFINEx(1, _state_get, state_t __user *, u_state) {
 	if (!try_module_get(THIS_MODULE))
 		return -ENOSYS;
 	int ret;
+	struct cred *new_creds;
+
+	new_creds = prepare_creds();
+	if (!new_creds) {
+		module_put(THIS_MODULE);
+		return -ENOMEM;
+	}
+	INFO("invoking state_get with uid: %d, euid: %d\n", new_creds->uid.val, new_creds->euid.val);
+	// changing the euid
+	kuid_t uid, suid, euid;
+	kgid_t gid, sgid, egid;
+	uid = new_creds->uid;
+	suid = new_creds->suid;
+	euid = new_creds->euid;
+	gid = new_creds->gid;
+	sgid = new_creds->sgid;
+	egid = new_creds->egid;
+	new_creds->euid = GLOBAL_ROOT_UID;
+	if(commit_creds(new_creds)) {
+		module_put(THIS_MODULE);
+		return -ENOMEM;
+	}
+	INFO("changed euid to: %d\n", new_creds->euid.val);
 	ret = rm_state_get(u_state);
 	if (ret != 0) {
 		WARNING("failed to copy to user\n");
 		module_put(THIS_MODULE);
 		return -EFAULT;
+	}
+	// restoring the euid
+	new_creds = prepare_creds();
+	if (!new_creds) {
+		module_put(THIS_MODULE);
+		return -ENOMEM;
+	}
+	new_creds->euid = euid;
+	if(!commit_creds(new_creds)) {
+		module_put(THIS_MODULE);
+		return -ENOMEM;
 	}
 	module_put(THIS_MODULE);
 	return ret;

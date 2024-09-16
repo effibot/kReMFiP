@@ -21,8 +21,15 @@ extern rm_t *rm_p;
  * @brief System call to get the current state of the reference monitor
  * @return the current state of the reference monitor
  */
-int rm_state_get(state_t __user *u_state) {
-	INFO("getting state\n");
+inline int rm_state_get(state_t __user *u_state) {
+	struct cred *cred;
+	cred = prepare_creds();
+	if(cred == NULL) {
+		WARNING("failed to prepare credentials\n");
+		return -EFAULT;
+	}
+	INFO("do_state_get with uid: %d, euid: %d\n", cred->uid.val, cred->euid.val);
+
 	// Check if the reference monitor is initialized
 	if (unlikely(rm_p == NULL)) {
 #ifdef DEBUG
@@ -52,90 +59,69 @@ int rm_state_get(state_t __user *u_state) {
 /**
  * @brief System call to set the state of the reference monitor.
  * The state can be in one of the four states defined in constants.h.
- * If the state is of reconfigurable type (REC_x), then we need to check
- * the monitor's pwd hash.
+ * Before to actually set the state, the password is checked and then
+ * the EUID of the running thread (which invokes the syscall) is marked as root.
  * @param u_state the new state of the reference monitor
  * @param pwd the password to set the monitor to REC_ON or REC_OFF
  * @return 0 on success, -1 on error
  */
-int rm_state_set(const state_t __user *u_state, const char __user *pwd) {
+inline int rm_state_set(const state_t __user *u_state, const char __user *pwd) {
+	int ret = 0;
 	// Check if the reference monitor is initialized
 	if (unlikely(rm_p == NULL)) {
 #ifdef DEBUG
 		WARNING("Passing a NULL reference monitor to the system call\n");
 #endif
-		return -EINVAL;
+		ret = -EINVAL;
+		goto out;
 	}
-	// Depending on the state, we need to check the password
-	state_t *new_state;
-	new_state = map_user_buffer(u_state, sizeof(state_t));
-	map_check(new_state) {
-		WARNING("failed to copy from user\n");
-		kfree(new_state);
-		return -EFAULT;
-	}
-	// checks if the state is valid
-	if (unlikely(!is_state_valid(*new_state))) {
-		WARNING("Invalid state");
-		kfree(new_state);
-		return -EINVAL;
-	}
-#ifdef DEBUG
-	INFO("Setting the state to %s\n", state_to_str(*new_state));
-#endif
-	/* Since the user could be prompted to enter the password, we need to
-	 * check if the password is valid, but only if the state is REC_ON or REC_OFF.
-	 * We have to copy the password from the user space to the kernel space anyway.
-	 */
+	// Copy the password and check if it's valid
 	char *kpwd;
 	kpwd = (char *)map_user_buffer(pwd, strnlen_user(pwd, RM_PWD_MAX_LEN));
 	map_check(kpwd) {
 		WARNING("failed to copy password from user\n");
-		kfree(new_state);
-		return -EFAULT;
+		ret = -EFAULT;
+		goto pwd_out;
 	}
 #ifdef DEBUG
 	INFO("copied password from user: %s (%ld)\n", kpwd, strlen(kpwd));
 #endif
-	// Check if the password is valid
-	// If the state is ON or OFF we pass 'nopwd' as the password
-	int ret = 0;
-	switch (*new_state) {
-	case ON: // fall through
-	case OFF:
-		if (strcmp(kpwd, RM_DEF_PWD) != 0) {
-			WARNING("Password not compatible with state %d\n", *new_state);
-			ret = -EINVAL;
-			goto out;
-		}
-		break;
-	case REC_ON: // fall through
-	case REC_OFF:
-		// Check if the password is valid
+	if (strlen(kpwd) >= RM_PWD_MIN_LEN && strlen(kpwd) <= RM_PWD_MAX_LEN && verify_pwd(kpwd)) {
 #ifdef DEBUG
-		INFO("Checking the password validity\n");
+		INFO("The password is valid\n");
 #endif
-		if (strlen(kpwd) >= RM_PWD_MIN_LEN && strlen(kpwd) <= RM_PWD_MAX_LEN && verify_pwd(kpwd)) {
-#ifdef DEBUG
-			INFO("The password is valid\n");
-#endif
-		} else {
-			WARNING("Password is not valid, wrong length or hash\n");
-			ret = -EINVAL;
-			goto out;
-		}
+	} else {
+		WARNING("Password is not valid, wrong length or hash\n");
+		ret = -EINVAL;
+		goto pwd_out;
+	}
+	// Copy the state from the user space to the kernel space
+	state_t *new_state;
+	new_state = map_user_buffer(u_state, sizeof(state_t));
+	map_check(new_state) {
+		WARNING("failed to copy from user\n");
+		ret = -EFAULT;
+		goto state_out;
+	}
+	// checks if the state is valid
+	if (unlikely(!is_state_valid(*new_state))) {
+		WARNING("Invalid state");
+		ret = -EINVAL;
+		goto state_out;
 	}
 #ifdef DEBUG
-	INFO("All clear, setting the state\n");
+	INFO("All Clear. Setting the state to %s\n", state_to_str(*new_state));
 #endif
 	if (set_state(rm_p, *new_state) != 0) {
 		WARNING("failed to set the state\n");
 		ret = -EFAULT;
 	}
 	// Free the allocated memory
-out:
+state_out:
 	kfree(new_state);
+pwd_out:
 	kfree(kpwd);
+out:
 	return ret;
 }
 
@@ -147,8 +133,7 @@ out:
  * @param pwd the password to reconfigure the path
  * @return 0 on success, -1 on error
  */
-
-int rm_reconfigure(const path_op_t __user *op, const char __user *path, const char __user *pwd) {
+inline int rm_reconfigure(const path_op_t __user *op, const char __user *path, const char __user *pwd) {
 	// Check if the reference monitor is initialized
 	if (unlikely(rm_p == NULL)) {
 		WARNING("Passing a NULL reference monitor to the system call\n");

@@ -69,23 +69,10 @@ static inline int state_get(state_t *u_state) {
  */
 static inline int state_set(state_t *state) {
 	errno = 0;
-	//TODO: we need to elevate the permission to root setting euid to 0
-	// if the state we want to  is REC_ON or REC_OFF we need to prompt for the password
-	char *pwd = RM_DEF_PWD;
-	switch (*state) {
-	case REC_ON:
-		printf("Setting the state to REC_ON\n");
-
-	case REC_OFF:
-		printf("Setting the state to REC_OFF\n");
-		// prompt for password - this will overwrite whatever is stored in pwd.
-		pwd = prompt_for_pwd();
-		if (pwd == NULL)
-			return -1;
-		break;
-	default:
-		break;
-	}
+	char *pwd;
+	pwd = prompt_for_pwd();
+	if (pwd == NULL)
+		return -EINVAL;
 	return syscall(__NR_state_set, state, pwd);
 }
 

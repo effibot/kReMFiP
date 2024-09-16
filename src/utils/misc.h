@@ -42,7 +42,7 @@ unsigned int rnd_id(void);
  * @return The byte array
  */
 
-char *hex_to_str(const unsigned char *hex, size_t len);
+inline char *hex_to_str(const unsigned char *hex, size_t len);
 /**
  * @brief Map user space buffer to kernel space.
  * Just a wrapper around the copy_from_user function to don't repeat the same code.
@@ -55,7 +55,6 @@ inline void *map_user_buffer(const void __user *ubuff, size_t len);
 // Useful macro to check if our mapping was successful
 #define map_check(kbuff) \
 	if (kbuff == ERR_PTR(-EINVAL) || kbuff == ERR_PTR(-ENOMEM) || kbuff == ERR_PTR(-EFAULT))
-
 #endif
 
 #endif

@@ -33,9 +33,6 @@ typedef enum _rm_state_t {
 */
 typedef enum _rm_path_op_t { PROTECT_PATH = 0, UNPROTECT_PATH = 1 } path_op_t;
 
-// Default password for the Monitor
-#define RM_DEF_PWD "nopwd"
-
 // THIS SECTION IS ONLY FOR THE KERNEL SPACE
 #ifdef __KERNEL__
 #define MODNAME "KREMFIP"

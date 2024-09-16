@@ -6,7 +6,7 @@
 #else
 #include <string.h>
 #endif
-char *state_to_str(const state_t state) {
+inline char *state_to_str(const state_t state) {
 	switch (state) {
 	case OFF:
 		return "OFF";
@@ -21,7 +21,7 @@ char *state_to_str(const state_t state) {
 	}
 }
 
-state_t str_to_state(const char *state_str) {
+inline state_t str_to_state(const char *state_str) {
 	if (strcmp(state_str, "OFF") == 0) {
 		return OFF;
 	}
@@ -43,7 +43,7 @@ state_t str_to_state(const char *state_str) {
  * @param state
  * @return bool
  */
-int is_state_valid(const state_t state) {
+inline int is_state_valid(const state_t state) {
 	return state == OFF || state == ON || state == REC_OFF || state == REC_ON;
 }
 int is_op_valid(const path_op_t op) {
@@ -78,7 +78,7 @@ unsigned int rnd_id(void) {
  * @param len The length of the byte array.
  * @return A hex string representation of the byte array.
  */
-char *hex_to_str(const unsigned char *hex, const size_t len) {
+inline char *hex_to_str(const unsigned char *hex, const size_t len) {
 	// be sure the hex string is not empty
 	if (strlen((char *)hex) == 0) {
 		return NULL;
