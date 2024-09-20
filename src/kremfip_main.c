@@ -25,6 +25,7 @@
 #include <linux/slab.h>
 #include <linux/types.h>
 #include <linux/uaccess.h>
+#include <linux/syscalls.h>
 
 /**
  * Since we have to runtime installs system calls we need to check the kernel version and
@@ -115,6 +116,7 @@ out:
 int state_get_nr = -1;
 int state_set_nr = -1;
 int reconfigure_nr = -1;
+int pwd_check_nr = -1;
 
 __SYSCALL_DEFINEx(1, _state_get, state_t __user *, u_state) {
 #ifdef DEBUG
@@ -123,72 +125,85 @@ __SYSCALL_DEFINEx(1, _state_get, state_t __user *, u_state) {
 	if (!try_module_get(THIS_MODULE))
 		return -ENOSYS;
 	int ret;
-	struct cred *new_creds;
-
-	new_creds = prepare_creds();
-	if (!new_creds) {
-		module_put(THIS_MODULE);
-		return -ENOMEM;
-	}
-	INFO("invoking state_get with uid: %d, euid: %d\n", new_creds->uid.val, new_creds->euid.val);
-	// changing the euid
-	kuid_t euid;
-	euid = new_creds->euid;
-	new_creds->euid = GLOBAL_ROOT_UID;
-	if(commit_creds(new_creds)) {
-		module_put(THIS_MODULE);
-		return -ENOMEM;
-	}
-	INFO("changed euid to: %d\n", new_creds->euid.val);
 	ret = rm_state_get(u_state);
 	if (ret != 0) {
 		WARNING("failed to copy to user\n");
 		module_put(THIS_MODULE);
 		return -EFAULT;
 	}
-	// restoring the euid
-	new_creds = prepare_creds();
-	if (!new_creds) {
-		module_put(THIS_MODULE);
-		return -ENOMEM;
-	}
-	new_creds->euid = euid;
-	if(commit_creds(new_creds)) {
-		module_put(THIS_MODULE);
-		return -ENOMEM;
-	}
-	INFO("restored euid to: %d\n", new_creds->euid.val);
 	module_put(THIS_MODULE);
 	return ret;
 }
 
-__SYSCALL_DEFINEx(2, _state_set, const state_t __user *, state, char __user *, pwd) {
+__SYSCALL_DEFINEx(1, _state_set, const state_t __user *, state) {
 #ifdef DEBUG
 	INFO("Invoking __x64_sys_state_set\n");
 #endif
 	if (!try_module_get(THIS_MODULE))
 		return -ENOSYS;
-	int ret;
-	INFO("do syscall state_set\n");
-	ret = rm_state_set(state, pwd);
-	if (ret != 0) {
-		WARNING("failed to copy to user with error: %d\n", ret);
+	// password is checked in user space, if we came here, we can trust the user
+	int ret, priv_err;
+	uid_t old_euid;
+	old_euid = (uid_t)elevate_privileges();
+	if (get_euid() != 0) { // if this is not zero we have an error
+		WARNING("Failed to elevate the privileges\n");
 		module_put(THIS_MODULE);
-		return -EFAULT;
+		return old_euid;
+	}
+	// we are root now, change the state of the monitor.
+	ret = rm_state_set(state);
+	if (ret != 0) {
+		// just log the error, we have to restore privileges anyway
+		WARNING("Unable to change the state of the monitor with error code: %d\n", ret);
+	}
+	// restore the privileges
+	priv_err = reset_privileges(old_euid);
+	if (priv_err != 0) {
+		WARNING("Failed to reset the privileges\n");
+		module_put(THIS_MODULE);
+		return priv_err;
 	}
 	module_put(THIS_MODULE);
 	return ret;
 }
 
-__SYSCALL_DEFINEx(3, _reconfigure, const path_op_t __user *, op, const char __user *, path,
-				  const char __user *, pwd) {
+__SYSCALL_DEFINEx(2, _reconfigure, const path_op_t __user *, op, const char __user *, path) {
 #ifdef DEBUG
 	INFO("Invoking __x64_sys_reconfigure\n");
 #endif
 	if (!try_module_get(THIS_MODULE))
 		return -ENOSYS;
+	int ret, priv_err;
+	uid_t old_euid;
+	old_euid = (uid_t)elevate_privileges();
+	if (get_euid() != 0) { // if this is not zero we have an error
+		WARNING("Failed to elevate the privileges\n");
+		module_put(THIS_MODULE);
+		return old_euid;
+	}
+	ret = rm_reconfigure(op, path);
+	if (ret != 0) {
+		WARNING("failed to reconfigure the monitor with error: %d\n", ret);
+	}
+	// restore the privileges
+	priv_err = reset_privileges(old_euid);
+	if (priv_err != 0) {
+		WARNING("Failed to reset the privileges\n");
+		module_put(THIS_MODULE);
+		return priv_err;
+	}
+	module_put(THIS_MODULE);
+	return ret;
+}
+
+__SYSCALL_DEFINEx(1, _pwd_check, const char __user *, pwd) {
+#ifdef DEBUG
+	INFO("Invoking __x64_sys_pwd_check\n");
+#endif
+	if(!try_module_get(THIS_MODULE))
+		return -ENOSYS;
 	int ret;
-	ret = rm_reconfigure(op, path, pwd);
+	ret = rm_pwd_check(pwd);
 	if (ret != 0) {
 		WARNING("failed to copy to user with error: %d\n", ret);
 		module_put(THIS_MODULE);
@@ -253,6 +268,7 @@ static int __init kremfip_init(void) {
 	state_get_nr = scth_hack(__x64_sys_state_get);
 	state_set_nr = scth_hack(__x64_sys_state_set);
 	reconfigure_nr = scth_hack(__x64_sys_reconfigure);
+	pwd_check_nr = scth_hack(__x64_sys_pwd_check);
 	if (state_get_nr < 0) {
 		scth_unhack(state_get_nr);
 		module_put(scth_mod);
@@ -283,6 +299,7 @@ static void __exit kremfip_exit(void) {
 	scth_unhack(state_get_nr);
 	scth_unhack(state_set_nr);
 	scth_unhack(reconfigure_nr);
+	scth_unhack(pwd_check_nr);
 	module_put(scth_mod);
 	rm_free(rm_p);
 	INFO("Module unloaded\n");

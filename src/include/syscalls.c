@@ -11,6 +11,7 @@
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/slab.h>
+#include <linux/syscalls.h>
 
 #include <linux/uaccess.h>
 
@@ -22,7 +23,7 @@ extern rm_t *rm_p;
  * @return the current state of the reference monitor
  */
 inline int rm_state_get(state_t __user *u_state) {
-	INFO("do_state_get with euid: %d\n", get_euid());
+	INFO("do_state_get with euid: %d and uid %d\n", get_euid(), current_uid().val);
 
 	// Check if the reference monitor is initialized
 	if (unlikely(rm_p == NULL)) {
@@ -38,7 +39,7 @@ inline int rm_state_get(state_t __user *u_state) {
 #ifdef DEBUG
 	INFO("got state %d\n", state);
 #endif
-	ret = copy_to_user(u_state, &state, sizeof(state_t));
+	ret = (int)copy_to_user(u_state, &state, sizeof(state_t));
 	asm volatile("mfence" ::: "memory");
 #ifdef DEBUG
 	INFO("RET: %d\n", ret);
@@ -56,38 +57,20 @@ inline int rm_state_get(state_t __user *u_state) {
  * Before to actually set the state, the password is checked and then
  * the EUID of the running thread (which invokes the syscall) is marked as root.
  * @param u_state the new state of the reference monitor
- * @param pwd the password to set the monitor to REC_ON or REC_OFF
  * @return 0 on success, -1 on error
  */
-inline int rm_state_set(const state_t __user *u_state, const char __user *pwd) {
+inline int rm_state_set(const state_t __user *u_state) {
 	int ret = 0;
 	// Check if the reference monitor is initialized
 	if (unlikely(rm_p == NULL)) {
-#ifdef DEBUG
 		WARNING("Passing a NULL reference monitor to the system call\n");
-#endif
 		ret = -EINVAL;
 		goto out;
 	}
-	// Copy the password and check if it's valid
-	char *kpwd;
-	kpwd = (char *)map_user_buffer(pwd, strnlen_user(pwd, RM_PWD_MAX_LEN));
-	map_check(kpwd) {
-		WARNING("failed to copy password from user\n");
-		ret = -EFAULT;
-		goto pwd_out;
-	}
-#ifdef DEBUG
-	INFO("copied password from user: %s (%ld)\n", kpwd, strlen(kpwd));
-#endif
-	if (strlen(kpwd) >= RM_PWD_MIN_LEN && strlen(kpwd) <= RM_PWD_MAX_LEN && verify_pwd(kpwd)) {
-#ifdef DEBUG
-		INFO("The password is valid\n");
-#endif
-	} else {
-		WARNING("Password is not valid, wrong length or hash\n");
-		ret = -EINVAL;
-		goto pwd_out;
+	if(get_euid() != 0) {
+		WARNING("The user is not root, cannot change the state\n");
+		ret = -EPERM;
+		goto out;
 	}
 	// Copy the state from the user space to the kernel space
 	state_t *new_state;
@@ -113,8 +96,6 @@ inline int rm_state_set(const state_t __user *u_state, const char __user *pwd) {
 	// Free the allocated memory
 state_out:
 	kfree(new_state);
-pwd_out:
-	kfree(kpwd);
 out:
 	return ret;
 }
@@ -124,18 +105,22 @@ out:
  * The reference monitor can be reconfigured only if it is in the OFF state.
  * @param op the operation to perform on the path
  * @param path the path to reconfigure
- * @param pwd the password to reconfigure the path
  * @return 0 on success, -1 on error
  */
-inline int rm_reconfigure(const path_op_t __user *op, const char __user *path, const char __user *pwd) {
+inline int rm_reconfigure(const path_op_t __user *op, const char __user *path) {
 	// Check if the reference monitor is initialized
 	if (unlikely(rm_p == NULL)) {
 		WARNING("Passing a NULL reference monitor to the system call\n");
 		return -EINVAL;
 	}
+	int ret;
+	if(get_euid() != 0) {
+		WARNING("The user is not root, cannot reconfigure the monitor\n");
+		ret = -EPERM;
+		goto out;
+	}
 	// We don't check if the state is REC_x because it's checked before calling this function
 	// Check if the operation is valid
-	int ret;
 	ret = 0;
 	// Check if the path is valid
 	char *kpath;
@@ -154,23 +139,7 @@ inline int rm_reconfigure(const path_op_t __user *op, const char __user *path, c
 #ifdef DEBUG
 	INFO("The requested path exists\n");
 #endif
-	// Check if the password is valid
-	char *kpwd;
-	kpwd = map_user_buffer(pwd, strnlen_user(pwd, RM_PWD_MAX_LEN));
-	map_check(kpwd) {
-		WARNING("failed to copy from user\n");
-		ret = -EFAULT;
-		goto pwd_out;
-	}
-	// Check if the password is valid
-	if (!(strlen(kpwd) >= RM_PWD_MIN_LEN && strlen(kpwd) <= RM_PWD_MAX_LEN && verify_pwd(kpwd))) {
-		WARNING("The password is not valid\n");
-		ret = -EINVAL;
-		goto pwd_out;
-	}
-#ifdef DEBUG
-	INFO("The inserted password is valid\n");
-#endif
+	// Copy the operation from the user space to the kernel space
 	path_op_t *new_op;
 	new_op = map_user_buffer(op, sizeof(path_op_t));
 	map_check(new_op) {
@@ -204,9 +173,44 @@ inline int rm_reconfigure(const path_op_t __user *op, const char __user *path, c
 	// Free the allocated memory
 op_out:
 	kfree(new_op);
-pwd_out:
-	kfree(kpwd);
 path_out:
 	kfree(kpath);
+out:
+	return ret;
+}
+
+/**
+ * @brief System call to check the password hash
+ * User-friendly way to let the user check for the password hash in user space
+ * @return 0 on success, errno on error
+ */
+inline int rm_pwd_check(const char __user *pwd) {
+	int ret = 0;
+	// Check if the reference monitor is initialized
+	if (unlikely(rm_p == NULL)) {
+		WARNING("Passing a NULL reference monitor to the system call\n");
+		ret = -EINVAL;
+		goto out;
+	}
+	// Copy the password from the user space to the kernel space
+	char *kpwd;
+	kpwd = map_user_buffer(pwd, strnlen_user(pwd, RM_PWD_MAX_LEN));
+	map_check(kpwd) {
+		WARNING("failed to copy from user\n");
+		ret = -EFAULT;
+		goto pwd_out;
+	}
+	// Check if the password is valid
+	INFO("Checking the password...\n");
+	if (strlen(kpwd) >= RM_PWD_MIN_LEN && strlen(kpwd) <= RM_PWD_MAX_LEN && verify_pwd(kpwd)) {
+		printk(KERN_CONT "The password is valid\n");
+	} else {
+		WARNING("The password is not valid\n");
+		ret =  -EINVAL;
+	}
+	// Free the allocated memory
+pwd_out:
+	kfree(kpwd);
+out:
 	return ret;
 }

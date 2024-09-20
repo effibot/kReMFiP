@@ -5,7 +5,7 @@
 #include "ht_dllist.h"
 #include "../../utils/misc.h"
 #include "../../utils/pathmgm.h"
-#include "../crypto/murmurhash3.h"
+#include "../hash/murmurhash3.h"
 #include <linux/fs.h>
 #include <linux/kernel.h>
 #include <linux/module.h>

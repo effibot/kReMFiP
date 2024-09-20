@@ -5,6 +5,8 @@
 
 #include "../include/constants.h"
 
+
+
 // Function prototypes - no kernel specific code here
 char *state_to_str(state_t state);
 state_t str_to_state(const char *state_str);
@@ -15,6 +17,7 @@ int is_op_valid(path_op_t op);
 #include <linux/errno.h>
 #include <linux/kernel.h>
 #include <linux/types.h>
+
 /* Some useful debug macros - the message we want to print is like
  * kern_type "[module::file::function::line]: message"
  */
@@ -24,9 +27,6 @@ int is_op_valid(path_op_t op);
 #define WARNING(fmt, ...)                                                                \
 	printk(KERN_WARNING "[%s::%s::%s::%d]: " fmt, MODNAME, __FILE__, __func__, __LINE__, \
 		   ##__VA_ARGS__);
-
-// get the euid of the current process
-#define get_euid()  current->cred->euid.val
 
 // Function prototypes - kernel specific code here
 
@@ -61,14 +61,6 @@ inline void *map_user_buffer(const void __user *ubuff, size_t len);
 #define map_check(kbuff) \
 	if (kbuff == ERR_PTR(-EINVAL) || kbuff == ERR_PTR(-ENOMEM) || kbuff == ERR_PTR(-EFAULT))
 
-
-/**
- * @brief This function is used to escalate the privileges of the current process to root.
- * It is used in the syscall implementation to allow the process to change the,
- * state of the reference monitor and to reconfigure the reference monitor.
- * @return 0 on success, -1 on error
- */
-//inline int privilege_escalation(void);
 /**
  * @brief This function is used to hash a password using an algorithm defined in the constants.h file.
  * We pre-append the salt to the password before hashing it. The default algorithm is SHA256.
@@ -79,7 +71,32 @@ inline void *map_user_buffer(const void __user *ubuff, size_t len);
  * @return 0 on success, -1 on error
  */
 inline int hash_pwd(const char *pwd, const u8 *pwd_salt, u8 *pwd_hash);
+/**
+ * @brief Check if the string inserted by the user is the password of the reference monitor.
+ * We hash the input string and compare it with the stored hash.
+ * @param input_str the string to check
+ * @return true if the string is the password, false otherwise
+ */
 inline bool verify_pwd(const char *input_str);
 
+
+
+// Macro to get the EUID of the current process
+#define get_euid() current->cred->euid.val
+
+/**
+ * @brief Elevate the privileges of the current process to root.
+ * This function elevates the privileges of the current process to root, if it's not already root.
+ * @remark REMEMBER TO STORE THE PREVIOUS UIDs AND GIDs TO RESTORE THEM LATER.
+ * THIS MUST ALWAYS BE SUCCEEDED BY reset_privileges TO RESTORE THE PRIVILEGES.
+ * @return int the old EUID of the thread on success, an error code otherwise.
+ */
+inline int elevate_privileges(void);
+/**
+ * @brief Reset the privileges of the current process.
+ * This function resets the privileges of the current process to the original ones.
+ * @return 0 on success, error code otherwise
+ */
+inline int reset_privileges(uid_t old_euid);
 #endif
 #endif
