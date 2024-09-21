@@ -23,8 +23,6 @@ extern rm_t *rm_p;
  * @return the current state of the reference monitor
  */
 inline int rm_state_get(state_t __user *u_state) {
-	INFO("do_state_get with euid: %d and uid %d\n", get_euid(), current_uid().val);
-
 	// Check if the reference monitor is initialized
 	if (unlikely(rm_p == NULL)) {
 #ifdef DEBUG
@@ -60,6 +58,10 @@ inline int rm_state_get(state_t __user *u_state) {
  * @return 0 on success, -1 on error
  */
 inline int rm_state_set(const state_t __user *u_state) {
+	if(get_euid() != 0) {
+		WARNING("The user is not root, cannot change the state\n");
+		return -EPERM;
+	}
 	int ret = 0;
 	// Check if the reference monitor is initialized
 	if (unlikely(rm_p == NULL)) {
@@ -67,7 +69,7 @@ inline int rm_state_set(const state_t __user *u_state) {
 		ret = -EINVAL;
 		goto out;
 	}
-	if(get_euid() != 0) {
+	if (get_euid() != 0) {
 		WARNING("The user is not root, cannot change the state\n");
 		ret = -EPERM;
 		goto out;
@@ -108,13 +110,17 @@ out:
  * @return 0 on success, -1 on error
  */
 inline int rm_reconfigure(const path_op_t __user *op, const char __user *path) {
+	if(get_euid() != 0) {
+		WARNING("The user is not root, cannot reconfigure the monitor\n");
+		return -EPERM;
+	}
 	// Check if the reference monitor is initialized
 	if (unlikely(rm_p == NULL)) {
 		WARNING("Passing a NULL reference monitor to the system call\n");
 		return -EINVAL;
 	}
 	int ret;
-	if(get_euid() != 0) {
+	if (get_euid() != 0) {
 		WARNING("The user is not root, cannot reconfigure the monitor\n");
 		ret = -EPERM;
 		goto out;
@@ -130,9 +136,15 @@ inline int rm_reconfigure(const path_op_t __user *op, const char __user *path) {
 		ret = -EFAULT;
 		goto path_out;
 	}
+	// check if the path exists
+	if (unlikely(!path_exists(kpath))) {
+		WARNING("The requested path does not exist\n");
+		ret = -ENOENT;
+		goto path_out;
+	}
 	// Check if the path is valid -> It must exist in the filesystem
-	if (unlikely(!path_exists(kpath) || !is_valid_path(kpath))) {
-		WARNING("The requested path does not exist or is not valid for the system\n");
+	if (unlikely(!is_valid_path(kpath))) {
+		WARNING("The requested path not valid for the monitor\n");
 		ret = -EINVAL;
 		goto path_out;
 	}
@@ -185,6 +197,9 @@ out:
  * @return 0 on success, errno on error
  */
 inline int rm_pwd_check(const char __user *pwd) {
+#ifdef DEBUG
+	INFO("Checking the password\n");
+#endif
 	int ret = 0;
 	// Check if the reference monitor is initialized
 	if (unlikely(rm_p == NULL)) {
@@ -200,14 +215,19 @@ inline int rm_pwd_check(const char __user *pwd) {
 		ret = -EFAULT;
 		goto pwd_out;
 	}
+#ifdef DEBUG
+	INFO("Read pwd (%s) from user-space of length %lu\n", kpwd, strlen(kpwd));
+#endif
 	// Check if the password is valid
-	INFO("Checking the password...\n");
 	if (strlen(kpwd) >= RM_PWD_MIN_LEN && strlen(kpwd) <= RM_PWD_MAX_LEN && verify_pwd(kpwd)) {
 		printk(KERN_CONT "The password is valid\n");
 	} else {
 		WARNING("The password is not valid\n");
-		ret =  -EINVAL;
+		ret = -EINVAL;
 	}
+#ifdef DEBUG
+	INFO("Password check completed\n");
+#endif
 	// Free the allocated memory
 pwd_out:
 	kfree(kpwd);

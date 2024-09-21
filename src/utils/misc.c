@@ -1,13 +1,13 @@
 #include "misc.h"
 #ifdef __KERNEL__
-#include <linux/random.h>
-#include <linux/slab.h>
-#include <linux/uaccess.h>
-#include <linux/cred.h>
 #include <crypto/hash.h>
 #include <crypto/sha256_base.h>
+#include <linux/cred.h>
 #include <linux/fs.h>
+#include <linux/random.h>
+#include <linux/slab.h>
 #include <linux/types.h>
+#include <linux/uaccess.h>
 #else
 #include <string.h>
 #endif
@@ -56,7 +56,6 @@ inline int is_op_valid(const path_op_t op) {
 }
 
 #ifdef __KERNEL__
-
 /**
  * @brief Generates a random ID.
  *
@@ -205,7 +204,7 @@ inline int hash_pwd(const char *pwd, const u8 *pwd_salt, u8 *pwd_hash) {
 	INFO("Password hash with salt computed successfully\n");
 #endif
 
-// free the memory - we don't want to leak traces of the password
+	// free the memory - we don't want to leak traces of the password
 
 out:
 	memzero_explicit(desc, sizeof(*desc));
@@ -243,7 +242,7 @@ inline bool verify_pwd(const char *input_str) {
 	}
 	bool cmp = false;
 	// Hash the input string
-	u8 *input_hash = kzalloc(RM_PWD_HASH_LEN*sizeof(u8), GFP_KERNEL);
+	u8 *input_hash = kzalloc(RM_PWD_HASH_LEN * sizeof(u8), GFP_KERNEL);
 	if (IS_ERR_OR_NULL(input_hash)) {
 		WARNING("Failed to allocate memory for the input hash");
 		return false;
@@ -260,7 +259,7 @@ inline bool verify_pwd(const char *input_str) {
 	}
 	// Read the stored hash from the sysfs
 	char *stored_hash;
-	stored_hash = kzalloc(RM_STR_HASH_LEN*sizeof(char), GFP_KERNEL);
+	stored_hash = kzalloc(RM_STR_HASH_LEN * sizeof(char), GFP_KERNEL);
 	if (IS_ERR_OR_NULL(stored_hash)) {
 		WARNING("Failed to allocate memory for the stored hash");
 		filp_close(f, NULL);
@@ -296,6 +295,9 @@ input_out:
  * @return int the old EUID of the thread on success, an error code otherwise.
  */
 inline int elevate_privileges(void) {
+#ifdef DEBUG
+	INFO("elevating the privileges\n");
+#endif
 	// Check if the user is already root
 	if (uid_eq(current_uid(), GLOBAL_ROOT_UID)) {
 		INFO("Already running as root\n");
@@ -303,25 +305,29 @@ inline int elevate_privileges(void) {
 		return 0;
 	}
 	// The user is not root, so we need to escalate the privileges
-	INFO("Getting creds");
 	struct cred *creds;
 	creds = prepare_creds();
 	if (IS_ERR(creds)) {
 		WARNING("Failed to prepare the credentials\n");
 		return (int)PTR_ERR(creds);
-
 	}
-	INFO("Setting the EUID to root");
+#ifdef DEBUG
+	INFO("Got the credentials");
+#endif
 	// Save the old EUID
 	const kuid_t old_euid = current_euid();
 	// Set the EUID to root
 	creds->euid = GLOBAL_ROOT_UID;
 	// Commit the new credentials - commit_creds returns 0 on success
-	if(commit_creds(creds)) {
+	// We don't need to manage the reference count because commit_creds does it for us
+	if (commit_creds(creds)) {
 		WARNING("Failed to set new EUID\n");
 		return -EPERM;
 	}
-	INFO("commit failed");
+#ifdef DEBUG
+	INFO("Credentials committed successfully, thread now has (UID, EUID) = (%d, %d)\n",
+		 current_uid().val, current_euid().val);
+#endif
 	// Return the old EUID
 	return (int)old_euid.val;
 }
@@ -332,6 +338,9 @@ inline int elevate_privileges(void) {
  * @return 0 on success, error code otherwise
  */
 inline int reset_privileges(uid_t old_euid) {
+#ifdef DEBUG
+	INFO("Resetting the privileges\n");
+#endif
 	// Check if the user is already root
 	if (uid_eq(current_uid(), GLOBAL_ROOT_UID)) {
 		INFO("Already running as root\n");
@@ -347,13 +356,15 @@ inline int reset_privileges(uid_t old_euid) {
 	// Set the EUID to the old value
 	creds->euid = make_kuid(current_user_ns(), old_euid);
 	// Commit the new credentials - commit_creds returns 0 on success
-	if(commit_creds(creds)) {
+	// We don't need to manage the reference count because commit_creds does it for us
+	if (commit_creds(creds)) {
 		WARNING("Failed to set new EUID\n");
 		return -EPERM;
 	}
+#ifdef DEBUG
+	INFO("Credentials committed successfully, thread now has (UID, EUID) = (%d, %d)\n",
+		 current_uid().val, current_euid().val);
+#endif
 	return 0;
 }
-
-
-
 #endif

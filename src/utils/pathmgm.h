@@ -11,6 +11,9 @@
 #include "misc.h"
 #include <linux/types.h>
 
+// Define a vector of invalid system paths
+#define INVALID_PATHS_NUM 12
+
 /**
  * @brief Check if the path is a directory
  * @param path the path to check

@@ -7,7 +7,7 @@
 #define KREMFIP_H
 
 #include "constants.h"
-//#define DEBUG
+#define DEBUG
 
 #ifdef __KERNEL__
 /* Kernel Module Header Section */
@@ -19,7 +19,6 @@ int rm_reconfigure(const path_op_t __user *op, const char __user *path);
 int rm_pwd_check(const char __user *pwd);
 #else
 /* User Space Header Section */
-
 
 /* Userspace System Calls Stubs */
 

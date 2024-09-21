@@ -5,8 +5,6 @@
 
 #include "../include/constants.h"
 
-
-
 // Function prototypes - no kernel specific code here
 char *state_to_str(state_t state);
 state_t str_to_state(const char *state_str);
@@ -78,8 +76,6 @@ inline int hash_pwd(const char *pwd, const u8 *pwd_salt, u8 *pwd_hash);
  * @return true if the string is the password, false otherwise
  */
 inline bool verify_pwd(const char *input_str);
-
-
 
 // Macro to get the EUID of the current process
 #define get_euid() current->cred->euid.val

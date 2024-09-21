@@ -23,9 +23,9 @@
 #include <linux/kthread.h>
 #include <linux/module.h>
 #include <linux/slab.h>
+#include <linux/syscalls.h>
 #include <linux/types.h>
 #include <linux/uaccess.h>
-#include <linux/syscalls.h>
 
 /**
  * Since we have to runtime installs system calls we need to check the kernel version and
@@ -200,7 +200,7 @@ __SYSCALL_DEFINEx(1, _pwd_check, const char __user *, pwd) {
 #ifdef DEBUG
 	INFO("Invoking __x64_sys_pwd_check\n");
 #endif
-	if(!try_module_get(THIS_MODULE))
+	if (!try_module_get(THIS_MODULE))
 		return -ENOSYS;
 	int ret;
 	ret = rm_pwd_check(pwd);
@@ -269,8 +269,9 @@ static int __init kremfip_init(void) {
 	state_set_nr = scth_hack(__x64_sys_state_set);
 	reconfigure_nr = scth_hack(__x64_sys_reconfigure);
 	pwd_check_nr = scth_hack(__x64_sys_pwd_check);
-	if (state_get_nr < 0) {
-		scth_unhack(state_get_nr);
+	if (state_get_nr < 0 || state_set_nr < 0 || reconfigure_nr < 0 || pwd_check_nr < 0) {
+		scth_cleanup();
+		rm_free(rm_p);
 		module_put(scth_mod);
 		WARNING("Failed to install state syscall at %d\n", state_get_nr);
 		return -EPERM;
@@ -296,11 +297,11 @@ static void __exit kremfip_exit(void) {
 		}
 	}
 #endif
-	scth_unhack(state_get_nr);
-	scth_unhack(state_set_nr);
-	scth_unhack(reconfigure_nr);
-	scth_unhack(pwd_check_nr);
+	// Unregister the system call
+	scth_cleanup();
+	// Dereference the SCTH module
 	module_put(scth_mod);
+	// Free the reference monitor
 	rm_free(rm_p);
 	INFO("Module unloaded\n");
 }

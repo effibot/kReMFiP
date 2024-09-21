@@ -13,21 +13,21 @@
 
 #include "rm.h"
 #include "../utils/misc.h"
-#include <linux/fs.h>
 #include <linux/fdtable.h>
 #include <linux/file.h>
+#include <linux/fs.h>
 #include <linux/init.h>
 #include <linux/kernel.h>
 #include <linux/kobject.h>
 #include <linux/memory.h>
 #include <linux/module.h>
+#include <linux/random.h>
 #include <linux/slab.h>
 #include <linux/string.h>
 #include <linux/sysfs.h>
 #include <linux/uaccess.h>
 #include <linux/vfs.h>
 #include <linux/workqueue.h>
-#include <linux/random.h>
 
 /*********************************
  * Internal functions prototypes *
@@ -109,7 +109,7 @@ rm_t *rm_init(void) {
 		return NULL;
 	}
 	// check if the password hash is stored correctly
-	if(!verify_pwd(module_pwd)) {
+	if (!verify_pwd(module_pwd)) {
 		WARNING("Failed to verify the password hash");
 		kfree(rm);
 		return NULL;
@@ -134,7 +134,7 @@ rm_t *rm_init(void) {
  */
 int set_state(rm_t *rm, const state_t state) {
 	// safety checks
-	if(unlikely(rm == NULL)) {
+	if (unlikely(rm == NULL)) {
 		WARNING("Reference monitor is NULL");
 		return -EINVAL;
 	}
@@ -189,9 +189,7 @@ void rm_free(const rm_t *rm) {
 
 /**
  * @brief Show the password hash
- *
  * This function shows the password hash in the sysfs file.
- *
  * @param kobj The kobject
  * @param attr The kobject attribute
  * @param buf The buffer to store the password hash
@@ -200,4 +198,17 @@ void rm_free(const rm_t *rm) {
 static inline ssize_t pwd_hash_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf) {
 	// just copy the password hash to the buffer as a null-terminated string
 	return snprintf(buf, RM_PWD_HASH_LEN * 2 + 1, "%s", hex_to_str(rm_pwd_hash, RM_PWD_HASH_LEN));
+}
+
+int rm_open_pre_handler(struct kprobe *ri, struct pt_regs *regs) {
+	return 0;
+}
+int rm_mkdir_pre_handler(struct kprobe *ri, struct pt_regs *regs) {
+	return 0;
+}
+int rm_rmdir_pre_handler(struct kprobe *ri, struct pt_regs *regs) {
+	return 0;
+}
+int rm_unlink_pre_handler(struct kprobe *ri, struct pt_regs *regs) {
+	return 0;
 }

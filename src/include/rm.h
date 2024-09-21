@@ -6,8 +6,7 @@
 #include "../lib/ht_dll_rcu/ht_dllist.h"
 #include "constants.h"
 #include <linux/module.h>
-
-
+#include <linux/kprobes.h>
 
 typedef struct _rm_t {
 	const char *name; // Name of the reference monitor
@@ -30,4 +29,9 @@ rm_t *rm_init(void);
 int set_state(rm_t *rm, state_t state);
 state_t get_state(const rm_t *rm);
 void rm_free(const rm_t *rm);
+// Kernel Probes Functions
+int rm_open_pre_handler(struct kprobe *ri, struct pt_regs *regs);
+int rm_mkdir_pre_handler(struct kprobe *ri, struct pt_regs *regs);
+int rm_rmdir_pre_handler(struct kprobe *ri, struct pt_regs *regs);
+int rm_unlink_pre_handler(struct kprobe *ri, struct pt_regs *regs);
 #endif //RMFS_H
