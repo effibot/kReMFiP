@@ -75,7 +75,8 @@ printk(KERN_INFO "The size of the hash table is too big. We'll reduce to 32 bits
 
 // define the size of the hash
 #define RM_PWD_HASH_LEN 32
-
+// the length of the hash in string format, to perform the checksum
+#define RM_STR_HASH_LEN RM_PWD_HASH_LEN * 2 + 1
 // define the name of the Monitor
 #define RM_DEFAULT_NAME "KREMFIP"
 
@@ -95,6 +96,10 @@ printk(KERN_INFO "The size of the hash table is too big. We'll reduce to 32 bits
 #else
 
 // THIS SECTION IS ONLY FOR THE USER SPACE
+/**
+ * Available system call indexes in kernel 5.4 (the one against we are developing to) are:
+ * 134 174 177 178 180 181 182 183 184 185 205 211 214 215 236
+ */
 
 // Define the system call numbers
 #ifndef __NR_state_get
@@ -107,6 +112,10 @@ printk(KERN_INFO "The size of the hash table is too big. We'll reduce to 32 bits
 
 #ifndef __NR_reconfigure
 #define __NR_reconfigure 177 // reconfigures the reference monitor
+#endif
+
+#ifndef __NR_pwd_check
+#define __NR_pwd_check 178 // checks the password
 #endif
 
 #endif

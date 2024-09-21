@@ -85,11 +85,14 @@ inline unsigned int rnd_id(void) {
  */
 inline char *hex_to_str(const unsigned char *hex, const size_t len) {
 	// be sure the hex string is not empty
-	if (strlen((char *)hex) == 0) {
+	if (strlen((char *)hex) == 0 || len == 0 || hex == NULL) {
 		return NULL;
 	}
 	// allocate the string -- 2 hex characters for each byte
 	char *str = kzalloc(len * 2 + 1, GFP_KERNEL);
+	if (str == NULL) {
+		return NULL;
+	}
 	size_t i;
 	for (i = 0; i < len; i++) {
 		sprintf(&str[i * 2], "%02x", hex[i]);
@@ -111,7 +114,7 @@ inline void *map_user_buffer(const void __user *ubuff, size_t len) {
 	if (ubuff == NULL) {
 		return ERR_PTR(-EINVAL);
 	}
-	int ret;
+	unsigned long ret;
 	// allocate the kernel space buffer
 	void *kbuff = kmalloc(len * sizeof(void), GFP_KERNEL);
 	if (kbuff == NULL) {
@@ -145,72 +148,73 @@ inline void *map_user_buffer(const void __user *ubuff, size_t len) {
 inline int hash_pwd(const char *pwd, const u8 *pwd_salt, u8 *pwd_hash) {
 	// The password is set at the module load time. Checking for non-NULL value just to be sure.
 	if (unlikely(pwd == NULL || strlen(pwd) == 0)) {
-		INFO("Password is not set");
+		WARNING("Password is not set");
 		return -EINVAL;
 	}
-
 	// concatenate the password and the salt
 	const size_t salted_len = strlen(pwd) + RM_PWD_SALT_LEN;
 	u8 *salted_pwd = kzalloc(salted_len, GFP_KERNEL);
 	if (unlikely(salted_pwd == NULL)) {
-		INFO("Failed to allocate memory for the salted password");
+		WARNING("Failed to allocate memory for the salted password");
 		return -ENOMEM;
 	}
+	int ret = 0;
 	// Add the salt at the head because is proven to be more secure
 	memcpy(salted_pwd, pwd_salt, RM_PWD_SALT_LEN);
-	memcpy(salted_pwd + RM_PWD_SALT_LEN, pwd,
-		   strlen(pwd)); // pointers arithmetic
+	// Copy the password after the salt, the + is for pointer arithmetic
+	memcpy(salted_pwd + RM_PWD_SALT_LEN, pwd, strlen(pwd));
 
 	// allocate memory for the hash - we use the SHA256 algorithm because yes
 	struct crypto_shash *tfm = crypto_alloc_shash(RM_CRYPTO_ALGO, 0, 0);
 	if (IS_ERR(tfm)) {
-		INFO("Failed to allocate crypto shash");
-		return PTR_ERR(tfm);
+		WARNING("Failed to allocate crypto shash");
+		ret = (int)PTR_ERR(tfm);
+		goto hash_init_out;
 	}
-	// allocate memory for the hash descriptor
-	// Allocate descriptor for shash (synchronous hash)
-	struct shash_desc *desc = kmalloc(sizeof(*desc) + crypto_shash_descsize(tfm), GFP_KERNEL);
+
+	// Allocate descriptor for hash (synchronous hash)
+	struct shash_desc *desc = kzalloc(sizeof(*desc) + crypto_shash_descsize(tfm), GFP_KERNEL);
 	if (!desc) {
-		printk(KERN_ERR "Failed to allocate shash descriptor\n");
-		crypto_free_shash(tfm);
-		kfree(salted_pwd);
-		return -ENOMEM;
+		WARNING("Failed to allocate hash descriptor\n");
+		ret = -ENOMEM;
+		goto desc_out;
 	}
 	// Initialize the descriptor
 	desc->tfm = tfm;
 
 	// Initialize the hash descriptor
-	int ret = crypto_shash_init(desc);
+	ret = crypto_shash_init(desc);
 	if (ret) {
-		printk(KERN_ERR "Hash initialization failed\n");
+		WARNING("Hash initialization failed\n");
 		goto out;
 	}
 
 	// Hash the salted password
 	ret = crypto_shash_update(desc, salted_pwd, salted_len);
 	if (ret) {
-		printk(KERN_ERR "Hash update failed\n");
+		WARNING("Hash update failed\n");
 		goto out;
 	}
 
 	// Finalize the hash
 	ret = crypto_shash_final(desc, pwd_hash);
 	if (ret) {
-		printk(KERN_ERR "Hash finalization failed\n");
+		WARNING("Hash finalization failed\n");
 	}
 #ifdef DEBUG
-	else {
-		printk(KERN_INFO "Password hash with salt computed successfully\n");
-	}
+	INFO("Password hash with salt computed successfully\n");
 #endif
 
-	// free the memory - we don't want to leak traces of the password
+// free the memory - we don't want to leak traces of the password
+
 out:
-	memzero_explicit(salted_pwd, salted_len);
-	kfree(salted_pwd);
 	memzero_explicit(desc, sizeof(*desc));
 	kfree(desc);
+desc_out:
 	crypto_free_shash(tfm);
+hash_init_out:
+	memzero_explicit(salted_pwd, salted_len);
+	kfree(salted_pwd);
 	return ret;
 }
 
@@ -232,40 +236,124 @@ inline bool verify_pwd(const char *input_str) {
 		WARNING("Input string is NULL");
 		return false;
 	}
+	// Checks if the length of the inserted password is feasible
+	if (strlen(input_str) < RM_PWD_MIN_LEN || strlen(input_str) > RM_PWD_MAX_LEN) {
+		WARNING("Password length is not feasible");
+		return false;
+	}
+	bool cmp = false;
 	// Hash the input string
 	u8 *input_hash = kzalloc(RM_PWD_HASH_LEN*sizeof(u8), GFP_KERNEL);
+	if (IS_ERR_OR_NULL(input_hash)) {
+		WARNING("Failed to allocate memory for the input hash");
+		return false;
+	}
 	if (hash_pwd(input_str, pwd_salt, input_hash)) {
 		WARNING("Failed to hash the input string");
-		return false;
+		goto input_out;
 	}
 	// Retrieve the stored hash from the sysfs
 	struct file *f = filp_open(RM_PWD_HASH_PATH, O_RDONLY, 0);
 	if (IS_ERR(f)) {
 		WARNING("Failed to open the sysfs file");
-		return false;
+		goto input_out;
 	}
 	// Read the stored hash from the sysfs
 	char *stored_hash;
-	size_t stored_hash_len = RM_PWD_HASH_LEN * 2 + 1;
-	stored_hash = kzalloc(stored_hash_len*sizeof(char), GFP_KERNEL);
-	const ssize_t bytes_read = kernel_read(f, stored_hash, RM_PWD_HASH_LEN * 2, &f->f_pos);
+	stored_hash = kzalloc(RM_STR_HASH_LEN*sizeof(char), GFP_KERNEL);
+	if (IS_ERR_OR_NULL(stored_hash)) {
+		WARNING("Failed to allocate memory for the stored hash");
+		filp_close(f, NULL);
+		goto stored_out;
+	}
+	const ssize_t bytes_read = kernel_read(f, stored_hash, RM_STR_HASH_LEN, &f->f_pos);
+	// we have read the hash, close the fd whatever happens
 	filp_close(f, NULL);
 	if (bytes_read < 0) {
 		WARNING("Failed to read the stored hash from the sysfs file");
-		return false;
+		goto stored_out;
 	}
 	// Compare the hashes
-	const bool cmp =
-		memcmp(hex_to_str(input_hash, RM_PWD_HASH_LEN), stored_hash, RM_PWD_HASH_LEN) == 0;
+	cmp = memcmp(hex_to_str(input_hash, RM_PWD_HASH_LEN), stored_hash, RM_PWD_HASH_LEN) == 0;
 #ifdef DEBUG
 	INFO("Hashes compared successfully");
 #endif
 	// Clean up the stored hash
-	memzero_explicit(stored_hash, stored_hash_len);
-	memzero_explicit(input_hash, RM_PWD_HASH_LEN);
+stored_out:
+	memzero_explicit(stored_hash, RM_STR_HASH_LEN);
 	kfree(stored_hash);
+input_out:
+	memzero_explicit(input_hash, RM_PWD_HASH_LEN);
 	kfree(input_hash);
 	return cmp;
 }
+
+/**
+ * @brief Elevate the privileges of the current process to root.
+ * This function elevates the privileges of the current process to root, if it's not already root.
+ * @remark REMEMBER TO STORE THE PREVIOUS UIDs AND GIDs TO RESTORE THEM LATER.
+ * THIS MUST ALWAYS BE SUCCEEDED BY reset_privileges TO RESTORE THE PRIVILEGES.
+ * @return int the old EUID of the thread on success, an error code otherwise.
+ */
+inline int elevate_privileges(void) {
+	// Check if the user is already root
+	if (uid_eq(current_uid(), GLOBAL_ROOT_UID)) {
+		INFO("Already running as root\n");
+		// Return 0 to indicate that the user is already root
+		return 0;
+	}
+	// The user is not root, so we need to escalate the privileges
+	INFO("Getting creds");
+	struct cred *creds;
+	creds = prepare_creds();
+	if (IS_ERR(creds)) {
+		WARNING("Failed to prepare the credentials\n");
+		return (int)PTR_ERR(creds);
+
+	}
+	INFO("Setting the EUID to root");
+	// Save the old EUID
+	const kuid_t old_euid = current_euid();
+	// Set the EUID to root
+	creds->euid = GLOBAL_ROOT_UID;
+	// Commit the new credentials - commit_creds returns 0 on success
+	if(commit_creds(creds)) {
+		WARNING("Failed to set new EUID\n");
+		return -EPERM;
+	}
+	INFO("commit failed");
+	// Return the old EUID
+	return (int)old_euid.val;
+}
+
+/**
+ * @brief Reset the privileges of the current process.
+ * This function resets the privileges of the current process to the original ones.
+ * @return 0 on success, error code otherwise
+ */
+inline int reset_privileges(uid_t old_euid) {
+	// Check if the user is already root
+	if (uid_eq(current_uid(), GLOBAL_ROOT_UID)) {
+		INFO("Already running as root\n");
+		return 0;
+	}
+	// The user is not root, so we need to reset the privileges
+	struct cred *creds;
+	creds = prepare_creds();
+	if (IS_ERR(creds)) {
+		WARNING("Failed to prepare the credentials\n");
+		return (int)PTR_ERR(creds);
+	}
+	// Set the EUID to the old value
+	creds->euid = make_kuid(current_user_ns(), old_euid);
+	// Commit the new credentials - commit_creds returns 0 on success
+	if(commit_creds(creds)) {
+		WARNING("Failed to set new EUID\n");
+		return -EPERM;
+	}
+	return 0;
+}
+
+
 
 #endif

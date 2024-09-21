@@ -35,7 +35,7 @@ INCLUDE := $(INCLUDEDIR)/rm.o $(INCLUDEDIR)/syscalls.o
 # Utils stuffs
 UTILS := $(UTILSDIR)/misc.o $(UTILSDIR)/pathmgm.o
 # Library stuffs
-LIBS := $(LIBDIR)/crypto/murmurhash3.o $(LIBDIR)/ht_dll_rcu/ht_dllist.o
+LIBS := $(LIBDIR)/hash/murmurhash3.o $(LIBDIR)/ht_dll_rcu/ht_dllist.o
 
 # Compiler Flags
 CFLAGS := -Wno-declaration-after-statement -Wno-implicit-fallthrough -Wno-unused-function -O3 -g

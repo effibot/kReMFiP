@@ -24,11 +24,10 @@ int main(int argc, char *argv[]) {
 		printf("Error: %s\n", strerror(errno));
 		return -1;
 	}
-	printf("euif: %d\n", geteuid());
+	printf("euid: %d\n", geteuid());
 	printf("%d\n", *state);
 	printf("Current state: %s\n", state_to_str(*state));
-    return 0;
-	state_t new_state = REC_OFF;
+	state_t new_state = REC_ON;
 	ret = state_set(&new_state);
 	if (ret < 0) {
 		printf("Error: %s\n", strerror(errno));
@@ -36,6 +35,8 @@ int main(int argc, char *argv[]) {
 	}
 	ret = state_get(state);
 	printf("New state: %s\n", state_to_str(*state));
+	printf("euid: %d\n", geteuid());
+	return 0;
 	char *path = "/home/effi/file0.txt";
 	path_op_t op = PROTECT_PATH;
 	ret = reconfigure(&op, path);
@@ -44,5 +45,8 @@ int main(int argc, char *argv[]) {
 		return -1;
 	}
 	printf("Reconfigured\n");
+	new_state = REC_OFF;
+	ret = state_set(&new_state);
+	ret = reconfigure(&op, path);
 	return 0;
 }
