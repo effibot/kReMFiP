@@ -92,8 +92,7 @@ inline char *hex_to_str(const unsigned char *hex, const size_t len) {
 	if (str == NULL) {
 		return NULL;
 	}
-	size_t i;
-	for (i = 0; i < len; i++) {
+	for (size_t i = 0; i < len; i++) {
 		sprintf(&str[i * 2], "%02x", hex[i]);
 	}
 	str[len * 2] = '\0'; // null terminate the string
@@ -113,14 +112,13 @@ inline void *map_user_buffer(const void __user *ubuff, size_t len) {
 	if (ubuff == NULL) {
 		return ERR_PTR(-EINVAL);
 	}
-	unsigned long ret;
 	// allocate the kernel space buffer
 	void *kbuff = kmalloc(len * sizeof(void), GFP_KERNEL);
 	if (kbuff == NULL) {
 		return ERR_PTR(-ENOMEM);
 	}
 	// copy the user space buffer to the kernel space buffer
-	ret = copy_from_user(kbuff, ubuff, len);
+	unsigned long ret = copy_from_user(kbuff, ubuff, len);
 	asm __volatile__("mfence" ::: "memory");
 	if (ret != 0) {
 		kfree(kbuff);
@@ -205,7 +203,6 @@ inline int hash_pwd(const char *pwd, const u8 *pwd_salt, u8 *pwd_hash) {
 #endif
 
 	// free the memory - we don't want to leak traces of the password
-
 out:
 	memzero_explicit(desc, sizeof(*desc));
 	kfree(desc);
@@ -258,8 +255,7 @@ inline bool verify_pwd(const char *input_str) {
 		goto input_out;
 	}
 	// Read the stored hash from the sysfs
-	char *stored_hash;
-	stored_hash = kzalloc(RM_STR_HASH_LEN * sizeof(char), GFP_KERNEL);
+	char *stored_hash = kzalloc(RM_STR_HASH_LEN * sizeof(char), GFP_KERNEL);
 	if (IS_ERR_OR_NULL(stored_hash)) {
 		WARNING("Failed to allocate memory for the stored hash");
 		filp_close(f, NULL);
@@ -305,8 +301,7 @@ inline int elevate_privileges(void) {
 		return 0;
 	}
 	// The user is not root, so we need to escalate the privileges
-	struct cred *creds;
-	creds = prepare_creds();
+	struct cred *creds = prepare_creds();
 	if (IS_ERR(creds)) {
 		WARNING("Failed to prepare the credentials\n");
 		return (int)PTR_ERR(creds);
@@ -347,8 +342,7 @@ inline int reset_privileges(uid_t old_euid) {
 		return 0;
 	}
 	// The user is not root, so we need to reset the privileges
-	struct cred *creds;
-	creds = prepare_creds();
+	struct cred *creds = prepare_creds();
 	if (IS_ERR(creds)) {
 		WARNING("Failed to prepare the credentials\n");
 		return (int)PTR_ERR(creds);

@@ -5,14 +5,14 @@
 #include "pathmgm.h"
 #include <linux/fs.h>
 #include <linux/namei.h>
-#include <linux/slab.h>
 #include <linux/string.h>
 #include <linux/uaccess.h>
 
 // Define a vector of invalid system paths
-static const char *invalid_paths[INVALID_PATHS_NUM] = { "/home/effi/file_i.txt", "boot",	"dev",	"etc",
-														"lib", "lib64", "proc", "root",
-														"run", "sbin",	"sys" };
+static const char *invalid_paths[INVALID_PATHS_NUM] = {
+	"bin",	"boot", "cdrom", "dev",	 "etc", "lib",		"lib64", "mnt", "opt", "proc",
+	"root", "run",	"sbin",	 "snap", "srv", "swapfile", "sys",	 "usr", "var"
+};
 
 /**
  * @brief Checks if the path exists in the filesystem
@@ -24,15 +24,13 @@ static const char *invalid_paths[INVALID_PATHS_NUM] = { "/home/effi/file_i.txt",
  */
 bool path_exists(const char *path) {
 	struct path p;
-	int ret;
-	ret = kern_path(path, LOOKUP_FOLLOW, &p);
-
-	INFO("kern_path returned %d\n", ret);
-
+	const int ret = kern_path(path, LOOKUP_FOLLOW, &p);
 	if (ret) {
 		return false;
 	}
-	INFO("found path %p", p.dentry->d_name.name);
+#ifdef DEBUG
+	INFO("found path %s", (char *)p.dentry->d_name.name);
+#endif
 	path_put(&p);
 	return true;
 }
@@ -53,15 +51,9 @@ bool is_valid_path(const char *path) {
 
 	const size_t len = strlen(path);
 
-	// Check for empty path
-	if (len == 0) {
-		WARNING("Empty path\n");
-		return false;
-	}
-
-	// Check for paths like . or .. - we want the user to specify the full path
-	if (strcmp(path, ".") == 0 || strcmp(path, "..") == 0) {
-		WARNING("Path starts with . or ..\n");
+	// Check for empty path, root directory, or paths like . or ..
+	if (len == 0 || strcmp(path, "/") == 0 || strcmp(path, ".") == 0 || strcmp(path, "..") == 0) {
+		WARNING("Invalid path: empty, root, or relative path\n");
 		return false;
 	}
 
@@ -71,41 +63,14 @@ bool is_valid_path(const char *path) {
 		return false;
 	}
 
-	// Check for / directory
-	if (strcmp(path, "/") == 0) {
-		WARNING("Root directory\n");
-		return false;
-	}
-
-	/* Now we want to avoid some system paths, listed in pathmgm.h.
-	 * Is sufficient to check if the first part of the path is in the list, so we need
-	 * to split the path in the first part and the rest. We need to take care of the
-	 * first slash, during the split.
-	 */
-	// Make a copy of the path
-	char *path_copy = kstrdup(path, GFP_KERNEL);
-	if (unlikely(path_copy == NULL)) {
-		WARNING("Failed to allocate memory for the path copy\n");
-		return false;
-	}
-	if (path_copy[0] == '/') {
-		// Skip the first slash
-		path_copy++;
-	}
-	// Split the path
-	char *first_part = strsep(&path_copy, "/");
-	printk("obtain first part: %s\n", first_part);
-	printk("from path: %s\n", path);
-	// Check if the first part is in the list
-	int i;
-	for (i = 0; i < INVALID_PATHS_NUM; i++) {
-		if (strcmp(first_part, invalid_paths[i]) == 0) {
-			WARNING("Invalid path\n");
-			kfree(path_copy);
+	// Check if the mount point or full path is in the list of invalid paths
+	for (int i = 0; i < INVALID_PATHS_NUM; i++) {
+		if (strcmp(path, invalid_paths[i]) == 0 ||
+			(path[0] == '/' && strcmp(path + 1, invalid_paths[i]) == 0)) {
+			WARNING("Invalid path or mount point\n");
 			return false;
 		}
 	}
 
-	kfree(path_copy);
 	return true;
 }

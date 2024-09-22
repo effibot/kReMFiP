@@ -38,7 +38,7 @@ UTILS := $(UTILSDIR)/misc.o $(UTILSDIR)/pathmgm.o
 LIBS := $(LIBDIR)/hash/murmurhash3.o $(LIBDIR)/ht_dll_rcu/ht_dllist.o
 
 # Compiler Flags
-CFLAGS := -Wno-declaration-after-statement -Wno-implicit-fallthrough -Wno-unused-function -O3 -g
+CFLAGS := -std=gnu11 -Wno-comment -Wno-declaration-after-statement -Wno-implicit-fallthrough -Wno-unused-function -O3 -g
 
 # make command invoked from the command line.
 ifeq ($(KERNELRELEASE),)

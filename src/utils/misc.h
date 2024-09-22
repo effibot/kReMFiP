@@ -26,6 +26,18 @@ int is_op_valid(path_op_t op);
 	printk(KERN_WARNING "[%s::%s::%s::%d]: " fmt, MODNAME, __FILE__, __func__, __LINE__, \
 		   ##__VA_ARGS__);
 
+/**
+* @brief Generate a for-each loop stub to loop over an array.
+* The keep, count and size variables needs to be declared outside the macro, due to
+* C standards against we are working with.
+* @param item the item to loop over
+* @param array the array to loop over
+* @param keep the condition to keep looping, it's just a int
+* @param count the counter of the loop, used to change the item in the inner loop through pointer arithmetic
+* @param size the size of the array.
+*/
+#define foreach(item, array) \
+	for (typeof(*array) *item = (array); item < (array) + ARRAY_SIZE(array); ++item)
 // Function prototypes - kernel specific code here
 
 /**

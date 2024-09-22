@@ -12,7 +12,7 @@
 #include <linux/types.h>
 
 // Define a vector of invalid system paths
-#define INVALID_PATHS_NUM 12
+#define INVALID_PATHS_NUM 19
 
 /**
  * @brief Check if the path is a directory

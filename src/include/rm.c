@@ -28,6 +28,7 @@
 #include <linux/uaccess.h>
 #include <linux/vfs.h>
 #include <linux/workqueue.h>
+#include <linux/fs_struct.h>
 
 /*********************************
  * Internal functions prototypes *
@@ -67,9 +68,9 @@ static struct attribute_group attr_group = {
 
 rm_t *rm_init(void) {
 	// Allocate memory for the reference monitor
-	rm_t *rm = kzalloc(sizeof(rm), GFP_KERNEL);
+	rm_t *rm = kzalloc(sizeof(rm_t), GFP_KERNEL);
 	if (unlikely(rm == NULL)) {
-		INFO("Failed to allocate memory for the reference monitor");
+		WARNING("Failed to allocate memory for the reference monitor");
 		return NULL;
 	}
 	// Set the default values
@@ -143,6 +144,7 @@ int set_state(rm_t *rm, const state_t state) {
 	INFO("Setting the state to %s\n", state_to_str(state));
 #endif
 	rm->state = state;
+	// TODO: Add or remove the hooks based on the state
 	return 0;
 }
 /**
@@ -155,7 +157,7 @@ int set_state(rm_t *rm, const state_t state) {
 state_t get_state(const rm_t *rm) {
 	// assert that the reference monitor is not NULL
 	if (rm == NULL) {
-		INFO("Reference monitor is NULL");
+		WARNING("Reference monitor is NULL");
 		return -EINVAL;
 	}
 	// return the state
@@ -171,7 +173,7 @@ state_t get_state(const rm_t *rm) {
 void rm_free(const rm_t *rm) {
 	// assert that the reference monitor is not NULL
 	if (rm == NULL) {
-		INFO("Reference monitor is NULL");
+		WARNING("Reference monitor is NULL");
 		return;
 	}
 	// free the hash table
@@ -200,7 +202,26 @@ static inline ssize_t pwd_hash_show(struct kobject *kobj, struct kobj_attribute 
 	return snprintf(buf, RM_PWD_HASH_LEN * 2 + 1, "%s", hex_to_str(rm_pwd_hash, RM_PWD_HASH_LEN));
 }
 
+struct open_flags {
+	void* buffer;
+	int open_flag;
+	umode_t mode;
+	int acc_mode;
+	int intent;
+	int lookup_flags;
+};
+
 int rm_open_pre_handler(struct kprobe *ri, struct pt_regs *regs) {
+	/* To check if the syscall can do its job we need to check 2 things:
+	 * 1. If the flags imply open a path with some write permissions
+	 * -- According to the current ABI: rdi = path, rsi = flags, rdx = mode
+	 * 2. If the path is present inside the hash table
+	 */
+
+	// get the flags from the registers
+	struct open_flags *flags = (struct open_flags *)regs->si;
+
+
 	return 0;
 }
 int rm_mkdir_pre_handler(struct kprobe *ri, struct pt_regs *regs) {

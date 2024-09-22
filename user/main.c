@@ -46,9 +46,10 @@ int main(int argc, char *argv[]) {
 		printf("Error: %s\n", strerror(errno));
 		return -1;
 	}
+	File f = open("/home/effivm/file0.txt", O_RDWR | O_CREAT, 0644);
 	printf("State set\n");
-	char *path = "/home/effi/file0.txt";
-	char *invalid_path = "/home/effi/file_i.txt";
+	char *path = "/home/effivm/file0.txt";
+	char *invalid_path = "/home/effivm/file_i.txt";
 	path_op_t op = PROTECT_PATH;
 	ret = reconfigure(&op, path);
 	if (ret < 0) {

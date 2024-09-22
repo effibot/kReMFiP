@@ -75,8 +75,7 @@ inline int rm_state_set(const state_t __user *u_state) {
 		goto out;
 	}
 	// Copy the state from the user space to the kernel space
-	state_t *new_state;
-	new_state = map_user_buffer(u_state, sizeof(state_t));
+	state_t *new_state = map_user_buffer(u_state, sizeof(state_t));
 	map_check(new_state) {
 		WARNING("failed to copy from user\n");
 		ret = -EFAULT;
@@ -107,7 +106,7 @@ out:
  * The reference monitor can be reconfigured only if it is in the OFF state.
  * @param op the operation to perform on the path
  * @param path the path to reconfigure
- * @return 0 on success, -1 on error
+ * @return 0 on success, error code on error
  */
 inline int rm_reconfigure(const path_op_t __user *op, const char __user *path) {
 	if(get_euid() != 0) {
@@ -129,8 +128,7 @@ inline int rm_reconfigure(const path_op_t __user *op, const char __user *path) {
 	// Check if the operation is valid
 	ret = 0;
 	// Check if the path is valid
-	char *kpath;
-	kpath = map_user_buffer(path, strnlen_user(path, PAGE_SIZE));
+	const char *kpath = map_user_buffer(path, strnlen_user(path, PAGE_SIZE));
 	map_check(kpath) {
 		WARNING("failed to copy from user\n");
 		ret = -EFAULT;
@@ -152,8 +150,7 @@ inline int rm_reconfigure(const path_op_t __user *op, const char __user *path) {
 	INFO("The requested path exists\n");
 #endif
 	// Copy the operation from the user space to the kernel space
-	path_op_t *new_op;
-	new_op = map_user_buffer(op, sizeof(path_op_t));
+	const path_op_t *new_op = map_user_buffer(op, sizeof(path_op_t));
 	map_check(new_op) {
 		WARNING("failed to copy from user\n");
 		ret = -EFAULT;
@@ -178,9 +175,12 @@ inline int rm_reconfigure(const path_op_t __user *op, const char __user *path) {
 		ret = ht_delete_node(rm_p->ht, node_init(kpath));
 		break;
 	}
-	if (ret != 0) {
+	if (ret == -EINVAL) {
 		WARNING("failed to reconfigure the path\n");
-		ret = -EFAULT;
+	} else if(ret == -EEXIST) {
+		WARNING("The path is already protected\n");
+	} else if(ret == -ENOENT) {
+		WARNING("The path was already removed\n");
 	}
 	// Free the allocated memory
 op_out:
@@ -208,8 +208,7 @@ inline int rm_pwd_check(const char __user *pwd) {
 		goto out;
 	}
 	// Copy the password from the user space to the kernel space
-	char *kpwd;
-	kpwd = map_user_buffer(pwd, strnlen_user(pwd, RM_PWD_MAX_LEN));
+	char *kpwd = map_user_buffer(pwd, strnlen_user(pwd, RM_PWD_MAX_LEN));
 	map_check(kpwd) {
 		WARNING("failed to copy from user\n");
 		ret = -EFAULT;

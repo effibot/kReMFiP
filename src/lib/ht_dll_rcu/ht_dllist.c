@@ -4,7 +4,6 @@
 
 #include "ht_dllist.h"
 #include "../../utils/misc.h"
-#include "../../utils/pathmgm.h"
 #include "../hash/murmurhash3.h"
 #include <linux/fs.h>
 #include <linux/kernel.h>
@@ -20,12 +19,12 @@
  */
 
 // RCU dependent functions
-void __ht_print_list(node_t *list); // print the elements in the given list
-size_t __ht_count_list(node_t *list); // count the number of elements in the given list
+static void __ht_print_list(node_t *list); // print the elements in the given list
+static size_t __ht_count_list(node_t *list); // count the number of elements in the given list
 
 // RCU independent functions
-size_t __ht_index(uint64_t key); // get the bucket were the node should be in the hash table
-
+static size_t __ht_index(uint64_t key); // get the bucket were the node should be in the hash table
+static void __node_reclaim_callback(struct rcu_head *rcu); // callback to free the memory of the node
 /**
  * @name ht_get_instance
  * @brief Get the global hash table instance like a singleton.
@@ -35,13 +34,13 @@ size_t __ht_index(uint64_t key); // get the bucket were the node should be in th
 ht_t *ht_create(const size_t size) {
 	if (unlikely(size == 0)) {
 #ifdef DEBUG
-		INFO("Failed to create hash table (size: %lu)\n", size);
+		WARNING("Failed to create hash table (size: %lu)\n", size);
 #endif
 		return NULL;
 	}
 	ht_t *table = kzalloc(sizeof(*table), GFP_KERNEL);
 	if (unlikely(table == NULL)) {
-		INFO("Failed to allocate memory for hash table\n");
+		WARNING("Failed to allocate memory for hash table\n");
 		goto ret_null;
 	}
 	// set the size of the hash table
@@ -49,24 +48,26 @@ ht_t *ht_create(const size_t size) {
 	// allocate memory for the heads of the lists
 	table->table = kzalloc(size * sizeof(node_t), GFP_KERNEL);
 	if (unlikely(table->table == NULL)) {
-		INFO("Failed to allocate memory for hash table\n");
+		WARNING("Failed to allocate memory for hash table\n");
 		goto free_table;
 	}
 	// allocate memory for the spinlocks - one per bucket
 	table->lock = kzalloc(size * sizeof(spinlock_t), GFP_KERNEL);
 	// initialize the heads of the lists and the spinlocks
-	size_t bkt;
-	for (bkt = 0; bkt < size; bkt++) {
+	for (size_t bkt = 0; bkt < size; bkt++) {
 		table->table[bkt] = kzalloc(sizeof(node_t), GFP_KERNEL);
 		if (unlikely(table->table[bkt] == NULL)) {
-			INFO("Failed to allocate memory for list at bucket %lu\n", bkt);
+			WARNING("Failed to allocate memory for list at bucket %lu\n", bkt);
 			goto free_table;
 		}
 		INIT_LIST_HEAD_RCU(&table->table[bkt]->list);
 		// initialize per-bucket spinlock
 		spin_lock_init(&table->lock[bkt]);
 	}
-	INFO("allocated memory for hash table\n");
+	// All clear, return the hash table
+#ifdef DEBUG
+	INFO("Hash Table initialized correctly\n");
+#endif
 	return table;
 
 free_table:
@@ -85,7 +86,7 @@ ret_null:
 node_t *ht_lookup(ht_t *ht, const uint64_t key) {
 	if (unlikely(ht == NULL || key <= 0)) {
 #ifdef DEBUG
-		INFO("Passing null table (%p) or invalid key (%llu)\n", ht, key);
+		WARNING("Passing null table (%p) or invalid key (%llu)\n", ht, key);
 #endif
 		goto not_found;
 	}
@@ -106,13 +107,18 @@ node_t *ht_lookup(ht_t *ht, const uint64_t key) {
 		// we are assuming that we cannot have collisions given by two
 		// different keys with the same value
 		if (tmp_node->key == key) {
+#ifdef DEBUG
 			INFO("Data (with key %llu) found in the hash table\n", key);
+#endif
 			rcu_read_unlock();
 			return tmp_node;
 		}
 	}
 not_found:
 	rcu_read_unlock();
+#ifdef DEBUG
+	INFO("Data not found in the hash table\n");
+#endif
 	return NULL;
 }
 
@@ -124,9 +130,9 @@ not_found:
  * @return
  */
 int ht_insert_node(ht_t *ht, node_t *node) {
-	if (unlikely(ht == NULL || node == NULL)) {
+	if (unlikely(ht == NULL) || node == NULL) {
 #ifdef DEBUG
-		INFO("Passing null table (%p) or null data (%p)\n", ht, node);
+		WARNING("Passing null table (%p) or null data (%p)\n", ht, node);
 #endif
 		return -EINVAL;
 	}
@@ -144,7 +150,10 @@ int ht_insert_node(ht_t *ht, node_t *node) {
 	// release the lock and synchronize the RCU
 	spin_unlock(&ht->lock[bkt]);
 	synchronize_rcu();
+#ifdef DEBUG
 	INFO("Data inserted in the hash table\n");
+	ht_print(ht);
+#endif
 	return 0;
 }
 
@@ -161,7 +170,7 @@ int ht_destroy(ht_t *ht) {
 	INFO("Destroying hash table\n");
 #endif
 	// check if the hash table is null
-	if (unlikely(ht == NULL)) {
+	if (ht == NULL) {
 		INFO("Passing null table (%p)\n", ht);
 		return -EINVAL;
 	}
@@ -170,8 +179,7 @@ int ht_destroy(ht_t *ht) {
 	// lock the whole table - if a writer is in the critical section, we need to wait
 	HT_LOCK_TABLE(ht);
 	// free the memory allocated for the heads of the lists
-	size_t i;
-	for (i = 0; i < HT_SIZE; i++) {
+	for (size_t i = 0; i < HT_SIZE; i++) {
 		node_t *tmp_head = rcu_dereference_protected(ht->table[i], lockdep_is_held(&ht->lock[i]));
 		// free the memory allocated for the elements in the list
 		node_t *tmp_node, *tmp_next;
@@ -183,7 +191,7 @@ int ht_destroy(ht_t *ht) {
 	}
 	// release the lock
 	HT_UNLOCK_TABLE(ht);
-	// free the memory allocated for the spinlocks
+	// free the memory allocated for the spinlock
 	kfree(ht->lock);
 	// free the memory allocated for the hash table
 	kfree(ht);
@@ -201,9 +209,9 @@ int ht_destroy(ht_t *ht) {
  * @return
  */
 int ht_delete_node(ht_t *ht, node_t *node) {
-	if (unlikely(ht == NULL || node == NULL)) {
+	if (unlikely(ht == NULL) || node == NULL) {
 #ifdef DEBUG
-		INFO("Passing null table (%p) or null data (%p)\n", ht, node);
+		WARNING("Passing null table (%p) or null data (%p)\n", ht, node);
 #endif
 		return -EINVAL;
 	}
@@ -254,6 +262,10 @@ size_t __ht_count_list(node_t *list) {
  */
 size_t *ht_count(ht_t *ht) {
 	size_t *count = kzalloc(HT_SIZE * sizeof(size_t), GFP_KERNEL);
+	if(unlikely(count == NULL)) {
+		WARNING("Failed to allocate memory for the count array\n");
+		return NULL;
+	}
 	size_t i;
 	if (unlikely(ht == NULL)) {
 #ifdef DEBUG
@@ -284,7 +296,7 @@ ret:
 size_t ht_get_count_at(ht_t *ht, const size_t index) {
 	if (unlikely(ht == NULL || index < 0 || index >= HT_SIZE)) {
 #ifdef DEBUG
-		INFO("Passing null table (%p) or invalid index (%lu)\n", ht, index);
+		WARNING("Passing null table (%p) or invalid index (%lu)\n", ht, index);
 #endif
 	}
 	const size_t *count = ht_count(ht);
@@ -301,20 +313,21 @@ size_t ht_get_count_at(ht_t *ht, const size_t index) {
 void ht_print(ht_t *ht) {
 	if (unlikely(ht == NULL)) {
 #ifdef DEBUG
-		INFO("passing null table\n");
+		WARNING("passing null table\n");
 #endif
 		return;
 	}
 	// print hash table infos
 	INFO("Table of size %d\n", HT_SIZE);
 	rcu_read_lock();
-	size_t i;
-	for (i = 0; i < HT_SIZE; i++) {
+	const size_t *count = ht_count(ht);
+	for (size_t i = 0; i < HT_SIZE; i++) {
 		// print the number of elements in the list at the given index
 		node_t *tmp_list_head = rcu_dereference(ht->table[i]);
-		printk("Index %lu: %lu elements\n", i, __ht_count_list(tmp_list_head));
+		printk("Index %lu: %lu elements\n", i, count[i]);
 		__ht_print_list(tmp_list_head);
 	}
+	kfree(count);
 	rcu_read_unlock();
 	INFO("End of table\n");
 }
@@ -327,7 +340,7 @@ void ht_print(ht_t *ht) {
 void __ht_print_list(node_t *list) {
 	if (unlikely(list == NULL)) {
 #ifdef DEBUG
-		INFO("passing null table (%p)\n", list);
+		WARNING("passing null table (%p)\n", list);
 #endif
 		return;
 	}
@@ -354,7 +367,7 @@ void __ht_print_list(node_t *list) {
 size_t __ht_index(uint64_t key) {
 	if (unlikely(key == 0)) {
 #ifdef DEBUG
-		INFO("Passing invalid key (%llu)\n", key);
+		WARNING("Passing invalid key (%llu)\n", key);
 #endif
 		return -EINVAL;
 	}
@@ -370,13 +383,12 @@ size_t __ht_index(uint64_t key) {
 uint64_t compute_hash(const char *key) {
 	if (unlikely(key == NULL)) {
 #ifdef DEBUG
-		INFO("Passing invalid key (%s)\n", key);
+		WARNING("Passing invalid key (%s)\n", key);
 #endif
 		return -EINVAL;
 	}
 	//return murmur3_x86_32(key, strlen(key), HT_SEED);
-	uint64_t *digest;
-	digest = murmur3_x64_128(key, strlen(key), HT_SEED);
+	const uint64_t *digest = murmur3_x64_128(key, (int)strlen(key), HT_SEED);
 	return digest[0] ^ digest[1];
 }
 
@@ -390,7 +402,7 @@ uint64_t compute_hash(const char *key) {
  */
 node_t *node_init(const char *path) {
 	if (unlikely(path == NULL || strcmp(path, "") == 0)) {
-		INFO("Empty path\n");
+		WARNING("Empty path\n");
 		return NULL;
 	}
 
@@ -407,8 +419,7 @@ node_t *node_init(const char *path) {
 		return NULL;
 	}
 	// copy the path
-	int ret;
-	ret = strscpy(node->path, path, strlen(path) + 1);
+	const int ret = (int)strscpy(node->path, path, strlen(path) + 1);
 	if (ret != strlen(path)) {
 		INFO("Failed to copy the path\n");
 		kfree(node->path);

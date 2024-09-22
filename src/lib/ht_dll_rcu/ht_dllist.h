@@ -20,7 +20,6 @@
 #define HT_DLLIST_H
 
 #include "../../../src/include/constants.h"
-#include <linux/list.h>
 #include <linux/spinlock.h>
 #include <linux/types.h>
 #include <linux/version.h>
@@ -32,8 +31,7 @@
  */
 #define HT_LOCK_TABLE(ht)                \
 	do {                                 \
-		size_t i;                        \
-		for (i = 0; i < ht->size; i++) { \
+		for (size_t i = 0; i < ht->size; i++) { \
 			spin_lock(&ht->lock[i]);     \
 		}                                \
 	} while (0)
@@ -44,8 +42,7 @@
  */
 #define HT_UNLOCK_TABLE(ht)              \
 	do {                                 \
-		size_t i;                        \
-		for (i = 0; i < ht->size; i++) { \
+		for (size_t i = 0; i < ht->size; i++) { \
 			spin_unlock(&ht->lock[i]);   \
 		}                                \
 	} while (0)

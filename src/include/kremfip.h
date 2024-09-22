@@ -7,7 +7,6 @@
 #define KREMFIP_H
 
 #include "constants.h"
-#define DEBUG
 
 #ifdef __KERNEL__
 /* Kernel Module Header Section */
