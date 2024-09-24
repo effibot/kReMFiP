@@ -34,4 +34,16 @@ int rm_open_pre_handler(struct kprobe *ri, struct pt_regs *regs);
 int rm_mkdir_pre_handler(struct kprobe *ri, struct pt_regs *regs);
 int rm_rmdir_pre_handler(struct kprobe *ri, struct pt_regs *regs);
 int rm_unlink_pre_handler(struct kprobe *ri, struct pt_regs *regs);
+
+// Define support struct for kernel probes functions
+
+// From linux/fs/internal.h
+struct open_flags {
+	int open_flag;
+	umode_t mode;
+	int acc_mode;
+	int intent;
+	int lookup_flags;
+};
+
 #endif //RMFS_H

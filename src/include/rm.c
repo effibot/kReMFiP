@@ -14,7 +14,6 @@
 #include "rm.h"
 #include "../utils/misc.h"
 #include <linux/fdtable.h>
-#include <linux/file.h>
 #include <linux/fs.h>
 #include <linux/init.h>
 #include <linux/kernel.h>
@@ -25,10 +24,6 @@
 #include <linux/slab.h>
 #include <linux/string.h>
 #include <linux/sysfs.h>
-#include <linux/uaccess.h>
-#include <linux/vfs.h>
-#include <linux/workqueue.h>
-#include <linux/fs_struct.h>
 
 /*********************************
  * Internal functions prototypes *
@@ -202,24 +197,41 @@ static inline ssize_t pwd_hash_show(struct kobject *kobj, struct kobj_attribute 
 	return snprintf(buf, RM_PWD_HASH_LEN * 2 + 1, "%s", hex_to_str(rm_pwd_hash, RM_PWD_HASH_LEN));
 }
 
-struct open_flags {
-	void* buffer;
-	int open_flag;
-	umode_t mode;
-	int acc_mode;
-	int intent;
-	int lookup_flags;
-};
-
 int rm_open_pre_handler(struct kprobe *ri, struct pt_regs *regs) {
 	/* To check if the syscall can do its job we need to check 2 things:
 	 * 1. If the flags imply open a path with some write permissions
-	 * -- According to the current ABI: rdi = path, rsi = flags, rdx = mode
+	 * -- According to the current ABI, we have:
+	 * -- rdi->arg0: int dfd
+	 * -- rsi->arg1: struct filename *pathname
+	 * -- rdx->arg2: struct open_flags *flags
 	 * 2. If the path is present inside the hash table
 	 */
 
-	// get the flags from the registers
-	struct open_flags *flags = (struct open_flags *)regs->si;
+	// To reduce the overhead, we can check if the flags imply write permissions first
+	const struct open_flags *oflags = (struct open_flags *)regs->dx;
+	if (unlikely(oflags == NULL)) {
+		WARNING("Invalid flags for the open syscall");
+		return -EINVAL;
+	}
+	// get the flags from the registers and check if they do not imply write permissions
+	int flags = oflags->open_flag;
+	if (!(flags & O_RDWR) && !(flags & O_WRONLY) && !(flags & (O_CREAT | __O_TMPFILE | O_EXCL)))
+		return 0;
+
+	// the do_filp_open is attempting to write on the file, check the hash table
+	int dfd = (int)regs->di;
+	const struct filename *fname = (struct filename *)regs->si;
+	if (unlikely(fname == NULL)) {
+		WARNING("Invalid filename for the open syscall");
+		return -EINVAL;
+	}
+	// get the path from the filename structure
+	const char *path = fname->name;
+	if (unlikely(path == NULL)) {
+		WARNING("Invalid path for the open syscall");
+		return -EINVAL;
+	}
+
 
 
 	return 0;
