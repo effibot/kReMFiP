@@ -29,6 +29,7 @@ rm_t *rm_init(void);
 int set_state(rm_t *rm, state_t state);
 state_t get_state(const rm_t *rm);
 void rm_free(const rm_t *rm);
+bool is_protected(const char* path);
 // Kernel Probes Functions
 int rm_open_pre_handler(struct kprobe *ri, struct pt_regs *regs);
 int rm_mkdir_pre_handler(struct kprobe *ri, struct pt_regs *regs);

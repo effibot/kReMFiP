@@ -38,9 +38,10 @@ bool is_symlink(const char *path);
 /**
  * @brief Get the path from the root
  * @param path the path to get the root from
- * @return the root path
+ * @param abs_path the absolute path to fill
+ * @return 0 or error codes on error.
  */
-char *get_full_path(const char *path);
+int get_abs_path(const char *path, char* abs_path);
 
 /**
  * @brief Check if the path exists

@@ -4,9 +4,14 @@
 
 #include "pathmgm.h"
 #include <linux/fs.h>
+#include <linux/kernel.h>
+#include <linux/slab.h>
 #include <linux/namei.h>
 #include <linux/string.h>
 #include <linux/uaccess.h>
+#include <linux/dcache.h>
+#include <linux/path.h>
+
 
 // Define a vector of invalid system paths
 static const char *invalid_paths[INVALID_PATHS_NUM] = {
@@ -73,4 +78,51 @@ bool is_valid_path(const char *path) {
 	}
 
 	return true;
+}
+
+
+int get_abs_path(const char *path, char *abs_path) {
+	if (unlikely(path == NULL)) {
+		WARNING("Path is NULL\n");
+		return -EINVAL;
+	}
+
+	struct path p;
+	// let the kernel resolves the path
+	int ret = kern_path(path, LOOKUP_FOLLOW, &p);
+	if (ret) {
+		WARNING("Unable to resolve the path\n");
+		return ret;
+	}
+	// Allocate temporary buffer to store the path
+	char *tmp_path = kmalloc(PATH_MAX, GFP_KERNEL);
+	if (unlikely(tmp_path == NULL)) {
+		WARNING("Unable to allocate memory for the path\n");
+		// release the path
+		path_put(&p);
+		return -ENOMEM;
+	}
+	// Get the absolute path -- d_path lets us to get the path from the root
+	char *resolved_path = d_path(&p, tmp_path, PATH_MAX);
+    if (IS_ERR(resolved_path)) {
+        kfree(tmp_path);
+        path_put(&p); // Release the path on failure
+        return PTR_ERR(resolved_path);
+    }
+	// Copy the resolved absolute path into the output buffer
+    strncpy(abs_path, resolved_path, PATH_MAX);
+
+    // Clean up
+    kfree(tmp_path);
+    path_put(&p); // Release the path
+	return 0;
+}
+
+bool is_dir(const char *path) {
+	struct kstat stat;
+	if (unlikely(vfs_stat(path, &stat) != 0)) {
+		WARNING("Unable to get the stat of the path\n");
+		return false;
+	}
+	return S_ISDIR(stat.mode);
 }

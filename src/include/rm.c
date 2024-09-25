@@ -13,6 +13,7 @@
 
 #include "rm.h"
 #include "../utils/misc.h"
+#include "../utils/pathmgm.h"
 #include <linux/fdtable.h>
 #include <linux/fs.h>
 #include <linux/init.h>
@@ -61,9 +62,10 @@ static struct attribute_group attr_group = {
  * @return rm_t* A pointer to the reference monitor structure
  */
 
+rm_t *rm;
 rm_t *rm_init(void) {
 	// Allocate memory for the reference monitor
-	rm_t *rm = kzalloc(sizeof(rm_t), GFP_KERNEL);
+	rm = kzalloc(sizeof(rm_t), GFP_KERNEL);
 	if (unlikely(rm == NULL)) {
 		WARNING("Failed to allocate memory for the reference monitor");
 		return NULL;
@@ -180,6 +182,35 @@ void rm_free(const rm_t *rm) {
 	kfree(rm);
 }
 
+/**
+ * @brief Check if the path is protected
+ * This function checks if the path is present in the hash table.
+ * @param path The path to check
+ * @return int 0 if the path is not present in the hash table, 1 otherwise
+ */
+
+bool is_protected(const char *path) {
+	// safety checks
+	if (unlikely(path == NULL)) {
+		WARNING("Path is NULL");
+		goto f;
+	}
+	// be sure that our ht exists
+	if (unlikely(rm->ht == NULL)) {
+		WARNING("Hash table is NULL");
+		goto f;
+	}
+	// Our lookup is key-based, so we need to hash the path
+	uint64_t key = compute_hash(path);
+	// make a lookup in the hash table
+	node_t *found = ht_lookup(rm->ht, key);
+	if (found) {
+		return true;
+	}
+f:
+	return false;
+}
+
 /*************************************
  * Internal function implementations *
  *************************************/
@@ -208,32 +239,67 @@ int rm_open_pre_handler(struct kprobe *ri, struct pt_regs *regs) {
 	 */
 
 	// To reduce the overhead, we can check if the flags imply write permissions first
-	const struct open_flags *oflags = (struct open_flags *)regs->dx;
+	struct open_flags *oflags = (struct open_flags *)regs->dx;
 	if (unlikely(oflags == NULL)) {
 		WARNING("Invalid flags for the open syscall");
 		return -EINVAL;
 	}
 	// get the flags from the registers and check if they do not imply write permissions
-	int flags = oflags->open_flag;
+	const int flags = oflags->open_flag;
 	if (!(flags & O_RDWR) && !(flags & O_WRONLY) && !(flags & (O_CREAT | __O_TMPFILE | O_EXCL)))
 		return 0;
 
 	// the do_filp_open is attempting to write on the file, check the hash table
-	int dfd = (int)regs->di;
 	const struct filename *fname = (struct filename *)regs->si;
 	if (unlikely(fname == NULL)) {
 		WARNING("Invalid filename for the open syscall");
 		return -EINVAL;
 	}
-	// get the path from the filename structure
+	//const __user char *upath = fname->uptr;
 	const char *path = fname->name;
 	if (unlikely(path == NULL)) {
 		WARNING("Invalid path for the open syscall");
 		return -EINVAL;
 	}
+	
+	// TODO: implement a full path discovery to obtain the absolute path of a file or a directory before inserting it in the HT
 
+	// The path could be a relative path. We decided to work only with absolute paths, so we need to obtain it.
+	char *abs_path;
+	int ret = get_abs_path(path, abs_path);
+	if (ret == 0) {
+		WARNING("Failed to get the absolute path");
+		return -EINVAL;
+	}
+	// get the file descriptor
+	int dfd = (int)regs->di;
+#ifdef DEBUG
+	INFO("Intercepted open syscall at %s with flags %d and fd %d\n", path, flags, dfd);
+#endif
+	// Check if the path is protected
+	bool is_prot = is_protected(abs_path);
+	// check if the path is a directory
+	bool dir = is_dir(abs_path);
+	int reject_call = 0;
+	if (is_prot) {
+		INFO("The path is being protected by monitor %s, open in read-only mode.\n", rm->name);
+		reject_call = 1;
+		goto log_open;
+	}
+	return 0;
+log_open:
+	// TODO: log the open syscall
 
-
+	// now handle the open syscall
+	if (reject_call) {
+		// We redirect the open at a NULL path, so the syscall will fail.
+		regs->si = (unsigned long) NULL;
+	} else {
+		//the filp_open is executed but with flag 0_RDONLY. Any attempt to write will return an error.
+		oflags->open_flag = ((flags ^ O_WRONLY) ^ O_RDWR) | O_RDONLY;
+		// set the flags to read-only
+		regs->dx = (unsigned long) oflags;		
+	}
 	return 0;
 }
 int rm_mkdir_pre_handler(struct kprobe *ri, struct pt_regs *regs) {
