@@ -14,6 +14,7 @@
 #include "include/kremfip.h"
 #include "include/rm.h"
 #include "utils/misc.h"
+#include "utils/pathmgm.h"
 #include <linux/compiler.h>
 #include <linux/delay.h>
 #include <linux/errno.h>
@@ -173,20 +174,18 @@ __SYSCALL_DEFINEx(2, _reconfigure, const path_op_t __user *, op, const char __us
 #endif
 	if (!try_module_get(THIS_MODULE))
 		return -ENOSYS;
-	int ret, priv_err;
-	uid_t old_euid;
-	old_euid = (uid_t)elevate_privileges();
+	uid_t old_euid = (uid_t)elevate_privileges();
 	if (get_euid() != 0) { // if this is not zero we have an error
 		WARNING("Failed to elevate the privileges\n");
 		module_put(THIS_MODULE);
 		return old_euid;
 	}
-	ret = rm_reconfigure(op, path);
+	int ret = rm_reconfigure(op, path);
 	if (ret != 0) {
 		WARNING("failed to reconfigure the monitor with error: %d\n", ret);
 	}
 	// restore the privileges
-	priv_err = reset_privileges(old_euid);
+	int priv_err = reset_privileges(old_euid);
 	if (priv_err != 0) {
 		WARNING("Failed to reset the privileges\n");
 		module_put(THIS_MODULE);
@@ -202,8 +201,7 @@ __SYSCALL_DEFINEx(1, _pwd_check, const char __user *, pwd) {
 #endif
 	if (!try_module_get(THIS_MODULE))
 		return -ENOSYS;
-	int ret;
-	ret = rm_pwd_check(pwd);
+	int ret = rm_pwd_check(pwd);
 	if (ret != 0) {
 		WARNING("failed to copy to user with error: %d\n", ret);
 		module_put(THIS_MODULE);
@@ -218,7 +216,6 @@ struct module *scth_mod = NULL;
 
 static int __init kremfip_init(void) {
 	// Lock the SCTH module.
-
 	mutex_lock(&module_mutex);
 	scth_mod = find_module("SCTH");
 	if (!try_module_get(scth_mod)) {

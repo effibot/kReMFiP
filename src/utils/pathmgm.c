@@ -89,7 +89,7 @@ int get_abs_path(const char *path, char *abs_path) {
 
 	struct path p;
 	// let the kernel resolves the path
-	int ret = kern_path(path, LOOKUP_FOLLOW, &p);
+	const int ret = kern_path(path, LOOKUP_FOLLOW, &p);
 	if (ret) {
 		WARNING("Unable to resolve the path\n");
 		return ret;
@@ -102,12 +102,12 @@ int get_abs_path(const char *path, char *abs_path) {
 		path_put(&p);
 		return -ENOMEM;
 	}
-	// Get the absolute path -- d_path lets us to get the path from the root
-	char *resolved_path = d_path(&p, tmp_path, PATH_MAX);
+	// Get the absolute path -- d_path lets us get the path from the root
+	const char *resolved_path = d_path(&p, tmp_path, PATH_MAX);
     if (IS_ERR(resolved_path)) {
         kfree(tmp_path);
         path_put(&p); // Release the path on failure
-        return PTR_ERR(resolved_path);
+        return -ENOENT;
     }
 	// Copy the resolved absolute path into the output buffer
     strncpy(abs_path, resolved_path, PATH_MAX);

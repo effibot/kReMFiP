@@ -201,9 +201,9 @@ bool is_protected(const char *path) {
 		goto f;
 	}
 	// Our lookup is key-based, so we need to hash the path
-	uint64_t key = compute_hash(path);
+	const uint64_t key = compute_hash(path);
 	// make a lookup in the hash table
-	node_t *found = ht_lookup(rm->ht, key);
+	const node_t *found = ht_lookup(rm->ht, key);
 	if (found) {
 		return true;
 	}
@@ -230,8 +230,8 @@ static inline ssize_t pwd_hash_show(struct kobject *kobj, struct kobj_attribute 
 
 int rm_open_pre_handler(struct kprobe *ri, struct pt_regs *regs) {
 	/* To check if the syscall can do its job we need to check 2 things:
-	 * 1. If the flags imply open a path with some write permissions
-	 * -- According to the current ABI, we have:
+	 * 1. If the flags imply open a path with some write permissions.
+	 * According to the current ABI, we have:
 	 * -- rdi->arg0: int dfd
 	 * -- rsi->arg1: struct filename *pathname
 	 * -- rdx->arg2: struct open_flags *flags
@@ -265,9 +265,9 @@ int rm_open_pre_handler(struct kprobe *ri, struct pt_regs *regs) {
 	// TODO: implement a full path discovery to obtain the absolute path of a file or a directory before inserting it in the HT
 
 	// The path could be a relative path. We decided to work only with absolute paths, so we need to obtain it.
-	char *abs_path;
+	char *abs_path = kmalloc(PATH_MAX, GFP_KERNEL);
 	int ret = get_abs_path(path, abs_path);
-	if (ret == 0) {
+	if (ret == 0 || abs_path == NULL) {
 		WARNING("Failed to get the absolute path");
 		return -EINVAL;
 	}

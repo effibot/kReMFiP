@@ -135,6 +135,7 @@ inline int rm_reconfigure(const path_op_t __user *op, const char __user *path) {
 		goto path_out;
 	}
 	// check if the path exists
+	// todo: substitute path exists with get full path, so we can add the absolut path to the ht
 	if (unlikely(!path_exists(kpath))) {
 		WARNING("The requested path does not exist\n");
 		ret = -ENOENT;
