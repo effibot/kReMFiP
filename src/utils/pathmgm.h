@@ -59,4 +59,13 @@ bool path_exists(const char *path);
  */
 bool is_valid_path(const char *path);
 
+/**
+ * @brief Get the path from the root to the second to last element of the path
+ * @param path The path to analyze
+ * @param dir_path The buffer to store the path to the directory
+ * @return the string containing the absolute path of the directory.
+ */
+int get_dir_path(const char *path, char *dir_path);
+
+
 #endif //PATHMGM_H

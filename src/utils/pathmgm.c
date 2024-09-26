@@ -132,3 +132,66 @@ bool is_dir(const char *path) {
 	}
 	return S_ISDIR(stat.mode);
 }
+
+bool is_file(const char *path) {
+	struct kstat stat;
+	if (unlikely(vfs_stat(path, &stat) != 0)) {
+		WARNING("Unable to get the stat of the path\n");
+		return false;
+	}
+	return S_ISREG(stat.mode);
+}
+
+bool is_symlink(const char *path) {
+	struct kstat stat;
+	if (unlikely(vfs_stat(path, &stat) != 0)) {
+		WARNING("Unable to get the stat of the path\n");
+		return false;
+	}
+	return S_ISLNK(stat.mode);
+}
+
+int get_dir_path(const char *path, char *dir_path) {
+	if (unlikely(path == NULL)) {
+		WARNING("Path is NULL\n");
+		return -EINVAL;
+	}
+	// Get the length of the path
+	const size_t len = strlen(path);
+	if (unlikely(len == 0)) {
+		WARNING("Path is empty\n");
+		return -EINVAL;
+	}
+	// Allocate temporary buffer to store the path
+	char *tmp_path = kmalloc(PATH_MAX, GFP_KERNEL);
+	if (unlikely(tmp_path == NULL)) {
+		WARNING("Unable to allocate memory for the path\n");
+		return -ENOMEM;
+	}
+	// Copy the path into the temporary buffer
+	int ret = (int)strscpy(tmp_path, path, PATH_MAX);
+	if (ret <= 0) {
+		WARNING("Unable to copy the path\n");
+		kfree(tmp_path);
+		return -EINVAL;
+	}
+	// Get the last element of the path
+	char *last = strrchr(tmp_path, '/');
+	if (unlikely(last == NULL)) {
+		WARNING("Unable to find the last element of the path\n");
+		kfree(tmp_path);
+		return -EINVAL;
+	}
+	// Set the last element to null
+	*last = '\0';
+	// Copy the temporary path into the output buffer
+	ret = (int)strscpy(dir_path, tmp_path, PATH_MAX);
+	if (ret <= 0) {
+		WARNING("Unable to copy the directory path\n");
+		kfree(tmp_path);
+		return -EINVAL;
+	}
+	// Clean up
+	kfree(tmp_path);
+	return 0;
+}

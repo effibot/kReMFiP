@@ -289,7 +289,14 @@ int rm_open_pre_handler(struct kprobe *ri, struct pt_regs *regs) {
 	INFO("Intercepted open syscall at %s with flags %d and fd %d\n", path, flags, dfd);
 #endif
 	// Case 1
-
+	// find the process working directory
+	char* dir_path = kzalloc(PATH_MAX, GFP_KERNEL);
+	if (unlikely(dir_path == NULL)) {
+		WARNING("Failed to get the directory path");
+		kfree(abs_path);
+		return -ENOMEM;
+	}
+	get_dir_path(path, dir_path);
 
 	// Check if the path is protected
 	bool is_prot = is_protected(abs_path);
