@@ -58,7 +58,7 @@ inline int rm_state_get(state_t __user *u_state) {
  * @return 0 on success, -1 on error
  */
 inline int rm_state_set(const state_t __user *u_state) {
-	if(get_euid() != 0) {
+	if (get_euid() != 0) {
 		WARNING("The user is not root, cannot change the state\n");
 		return -EPERM;
 	}
@@ -109,7 +109,7 @@ out:
  * @return 0 on success, error code on error
  */
 inline int rm_reconfigure(const path_op_t __user *op, const char __user *path) {
-	if(get_euid() != 0) {
+	if (get_euid() != 0) {
 		WARNING("The user is not root, cannot reconfigure the monitor\n");
 		return -EPERM;
 	}
@@ -135,8 +135,10 @@ inline int rm_reconfigure(const path_op_t __user *op, const char __user *path) {
 		goto path_out;
 	}
 	// check if the path exists
-	// todo: substitute path exists with get full path, so we can add the absolut path to the ht
-	if (unlikely(!path_exists(kpath))) {
+	// This was previously done with path_exists but if we can't get an absolute path
+	// we assume that it doesn't exist
+	char *abs_path = kzalloc(PATH_MAX, GFP_KERNEL);
+	if (unlikely(get_abs_path(kpath, abs_path) != 0)) {
 		WARNING("The requested path does not exist\n");
 		ret = -ENOENT;
 		goto path_out;
@@ -170,17 +172,17 @@ inline int rm_reconfigure(const path_op_t __user *op, const char __user *path) {
 	// to protect a path we add a node in the hash table, to remove it we delete it
 	switch (*new_op) {
 	case PROTECT_PATH:
-		ret = ht_insert_node(rm_p->ht, node_init(kpath));
+		ret = ht_insert_node(rm_p->ht, node_init(abs_path));
 		break;
 	case UNPROTECT_PATH:
-		ret = ht_delete_node(rm_p->ht, node_init(kpath));
+		ret = ht_delete_node(rm_p->ht, node_init(abs_path));
 		break;
 	}
 	if (ret == -EINVAL) {
 		WARNING("failed to reconfigure the path\n");
-	} else if(ret == -EEXIST) {
+	} else if (ret == -EEXIST) {
 		WARNING("The path is already protected\n");
-	} else if(ret == -ENOENT) {
+	} else if (ret == -ENOENT) {
 		WARNING("The path was already removed\n");
 	}
 	// Free the allocated memory
@@ -188,6 +190,7 @@ op_out:
 	kfree(new_op);
 path_out:
 	kfree(kpath);
+	kfree(abs_path);
 out:
 	return ret;
 }

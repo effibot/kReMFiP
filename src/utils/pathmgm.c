@@ -3,15 +3,14 @@
 //
 
 #include "pathmgm.h"
+#include <linux/dcache.h>
 #include <linux/fs.h>
 #include <linux/kernel.h>
-#include <linux/slab.h>
 #include <linux/namei.h>
+#include <linux/path.h>
+#include <linux/slab.h>
 #include <linux/string.h>
 #include <linux/uaccess.h>
-#include <linux/dcache.h>
-#include <linux/path.h>
-
 
 // Define a vector of invalid system paths
 static const char *invalid_paths[INVALID_PATHS_NUM] = {
@@ -80,7 +79,6 @@ bool is_valid_path(const char *path) {
 	return true;
 }
 
-
 int get_abs_path(const char *path, char *abs_path) {
 	if (unlikely(path == NULL)) {
 		WARNING("Path is NULL\n");
@@ -89,9 +87,12 @@ int get_abs_path(const char *path, char *abs_path) {
 
 	struct path p;
 	// let the kernel resolves the path
-	const int ret = kern_path(path, LOOKUP_FOLLOW, &p);
+	int ret = kern_path(path, LOOKUP_FOLLOW, &p);
 	if (ret) {
 		WARNING("Unable to resolve the path\n");
+		if(strscpy(abs_path, PATH_NOT_FOUND, PATH_MAX) != strlen(PATH_NOT_FOUND)) {
+			WARNING("Unable to copy the path not found message\n");
+		}
 		return ret;
 	}
 	// Allocate temporary buffer to store the path
@@ -104,17 +105,22 @@ int get_abs_path(const char *path, char *abs_path) {
 	}
 	// Get the absolute path -- d_path lets us get the path from the root
 	const char *resolved_path = d_path(&p, tmp_path, PATH_MAX);
-    if (IS_ERR(resolved_path)) {
+	if (IS_ERR(resolved_path)) {
+		kfree(tmp_path);
+		path_put(&p); // Release the path on failure
+		return -ENOENT;
+	}
+	// Copy the resolved absolute path into the output buffer
+	ret = (int)strscpy(abs_path, resolved_path, PATH_MAX);
+	if (ret <= 0) {
+        WARNING("Unable to copy the resolved path\n");
         kfree(tmp_path);
         path_put(&p); // Release the path on failure
         return -ENOENT;
     }
-	// Copy the resolved absolute path into the output buffer
-    strncpy(abs_path, resolved_path, PATH_MAX);
-
-    // Clean up
-    kfree(tmp_path);
-    path_put(&p); // Release the path
+	// Clean up
+	kfree(tmp_path);
+	path_put(&p); // Release the path
 	return 0;
 }
 

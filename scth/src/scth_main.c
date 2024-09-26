@@ -16,6 +16,8 @@
 #include "include/scth.h"
 #include "../headers/scth_lib.h"
 
+// TODO: export the index of hackable entries through a sysfs file and build a function to read them
+
 /**
  * Since we have to runtime installs system calls we need to check the kernel version and
  * limit the module to a specific range of versions. The lower bound is to don't be bothered

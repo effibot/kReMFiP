@@ -14,6 +14,8 @@
 // Define a vector of invalid system paths
 #define INVALID_PATHS_NUM 19
 
+// Define a keyword for path not found
+#define PATH_NOT_FOUND "Path not found"
 /**
  * @brief Check if the path is a directory
  * @param path the path to check

@@ -261,21 +261,36 @@ int rm_open_pre_handler(struct kprobe *ri, struct pt_regs *regs) {
 		WARNING("Invalid path for the open syscall");
 		return -EINVAL;
 	}
-	
-	// TODO: implement a full path discovery to obtain the absolute path of a file or a directory before inserting it in the HT
 
 	// The path could be a relative path. We decided to work only with absolute paths, so we need to obtain it.
 	char *abs_path = kmalloc(PATH_MAX, GFP_KERNEL);
 	int ret = get_abs_path(path, abs_path);
-	if (ret == 0 || abs_path == NULL) {
-		WARNING("Failed to get the absolute path");
-		return -EINVAL;
+	int not_exists = 0;
+	// if we could't resolve the path, abs_path is filled with the error keyword
+	if(strcmp(abs_path, PATH_NOT_FOUND) == 0) {
+		WARNING("Path not found\n");
+		// we flip the flag because we still should check if the file is being created
+		kfree(abs_path);
+		if (flags & (O_CREAT | __O_TMPFILE | O_EXCL)) {
+			not_exists = 1;
+		}
 	}
+	// if the path is not found and is not being created, exit
+	if (ret <= 0 && not_exists == 0) {
+		WARNING("Failed to get the absolute path");
+		return ret;
+	}
+	// We can fall into 2 cases now:
+	// 1. The path is not found and is being created
+	// 2. The path is found
 	// get the file descriptor
 	int dfd = (int)regs->di;
 #ifdef DEBUG
 	INFO("Intercepted open syscall at %s with flags %d and fd %d\n", path, flags, dfd);
 #endif
+	// Case 1
+
+
 	// Check if the path is protected
 	bool is_prot = is_protected(abs_path);
 	// check if the path is a directory
