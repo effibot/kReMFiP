@@ -10,8 +10,6 @@ MODNAME := kremfip
 VERSION := 0.1
 # Kernel Module Directory
 KDIR ?= /lib/modules/$(shell uname -r)/build
-# Current Directory
-PWD := $(shell pwd)
 # Source Directory
 SRCDIR := src
 # Sub-module Directory
@@ -23,10 +21,9 @@ UTILSDIR := $(SRCDIR)/utils
 # Library Directory
 LIBDIR := $(SRCDIR)/lib
 # Test Directory
-TESTDIR := $(PWD)/test
+TESTDIR := test
 # User Directory
-USERDIR := $(PWD)/user
-
+USERDIR := user
 
 # Source files
 SRC := $(SRCDIR)/kremfip_main.o
@@ -40,15 +37,23 @@ LIBS := $(LIBDIR)/hash/murmurhash3.o $(LIBDIR)/ht_dll_rcu/ht_dllist.o
 # Compiler Flags
 CFLAGS := -std=gnu11 -Wno-comment -Wno-declaration-after-statement -Wno-implicit-fallthrough -Wno-unused-function -O3 -g
 
-# make command invoked from the command line.
-ifeq ($(KERNELRELEASE),)
+# Module configuration
+obj-m += $(MODNAME).o
+obj-y += $(SCTHDIR)/
+$(MODNAME)-y += $(SRC) $(INCLUDE) $(UTILS) $(LIBS)
+KBUILD_EXTRA_SYMBOLS += $(PWD)/$(SCTHDIR)/Module.symvers
+
+ifeq ($(DEBUG), 1)
+CFLAGS += -DDEBUG
+endif
+
+# Targets
 .PHONY: all clean load unload user
 
 all:
 	$(MAKE) -C $(KDIR) M=$(PWD) modules EXTRA_CFLAGS="$(CFLAGS)"
 
 clean:
-	@cd $(SCTHDIR) && $(MAKE) clean
 	$(MAKE) -C $(KDIR) M=$(PWD) clean
 	@if [ -f $(USERDIR)/user_test ]; then rm $(USERDIR)/user_test; fi
 
@@ -63,13 +68,3 @@ unload:
 	sudo rmmod $(MODNAME).ko
 user:
 	@cd $(USERDIR) && $(MAKE) all
-else
-# make command invoked from the kernel build system.
-obj-m += $(MODNAME).o
-obj-y += $(SCTHDIR)/
-$(MODNAME)-y += $(SRC) $(INCLUDE) $(UTILS) $(LIBS)
-KBUILD_EXTRA_SYMBOLS += $(SCTHDIR)/Module.symvers
-ifeq ($(DEBUG), 1)
-ccflags-y += -DDEBUG
-endif
-endif

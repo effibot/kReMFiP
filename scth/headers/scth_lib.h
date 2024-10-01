@@ -10,5 +10,6 @@ void **scth_finder(void);
 void scth_cleanup(void);
 int scth_hack(void *new_call_addr);
 void scth_unhack(int to_restore);
+int* scth_get_sysnis(void);
 
 #endif //SCTH_LIB_H

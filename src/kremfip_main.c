@@ -10,6 +10,7 @@
  */
 
 #define EXPORT_SYMTAB
+
 #include "../scth/headers/scth_lib.h"
 #include "include/kremfip.h"
 #include "include/rm.h"
@@ -28,18 +29,24 @@
 #include <linux/types.h>
 #include <linux/uaccess.h>
 
+
+MODULE_LICENSE("GPL");
+MODULE_AUTHOR("Andrea Efficace");
+MODULE_DESCRIPTION("Reference Monitor File System");
+MODULE_INFO(name, MODNAME);
+MODULE_INFO(OS, "Linux");
+MODULE_VERSION("1.0");
+
 /**
  * Since we have to runtime installs system calls we need to check the kernel version and
  * limit the module to a specific range of versions. The lower bound is to don't be bothered
  * with the old kernel versions, while the upper bound is to avoid the changes in the system
- * call management that happened after the 5.4 version.
- * TODO: we could check if this could be ported up to the 5.15 version 5.15.154
+ * call management that happened after the 5.15 version.
  */
-#if LINUX_VERSION_CODE > KERNEL_VERSION(5, 4, 0)
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 17, 0)
-#error "This module requires kernel in range [4.17.x, 5.4.x]"
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 17, 0) && LINUX_VERSION_CODE <= KERNEL_VERSION(5, 15, 0)
+#error "This module requires kernel in range [4.17.x, 5.15.x]"
 #endif
-#endif
+
 //#define TEST
 /* Reference monitor pointer. */
 rm_t *rm_p = NULL;
@@ -125,8 +132,7 @@ __SYSCALL_DEFINEx(1, _state_get, state_t __user *, u_state) {
 #endif
 	if (!try_module_get(THIS_MODULE))
 		return -ENOSYS;
-	int ret;
-	ret = rm_state_get(u_state);
+	const int ret = rm_state_get(u_state);
 	if (ret != 0) {
 		WARNING("failed to copy to user\n");
 		module_put(THIS_MODULE);
@@ -143,22 +149,20 @@ __SYSCALL_DEFINEx(1, _state_set, const state_t __user *, state) {
 	if (!try_module_get(THIS_MODULE))
 		return -ENOSYS;
 	// password is checked in user space, if we came here, we can trust the user
-	int ret, priv_err;
-	uid_t old_euid;
-	old_euid = (uid_t)elevate_privileges();
+	const uid_t old_euid = elevate_privileges();
 	if (get_euid() != 0) { // if this is not zero we have an error
 		WARNING("Failed to elevate the privileges\n");
 		module_put(THIS_MODULE);
 		return old_euid;
 	}
 	// we are root now, change the state of the monitor.
-	ret = rm_state_set(state);
+	const int ret = rm_state_set(state);
 	if (ret != 0) {
 		// just log the error, we have to restore privileges anyway
 		WARNING("Unable to change the state of the monitor with error code: %d\n", ret);
 	}
 	// restore the privileges
-	priv_err = reset_privileges(old_euid);
+	const int priv_err = reset_privileges(old_euid);
 	if (priv_err != 0) {
 		WARNING("Failed to reset the privileges\n");
 		module_put(THIS_MODULE);
@@ -174,18 +178,18 @@ __SYSCALL_DEFINEx(2, _reconfigure, const path_op_t __user *, op, const char __us
 #endif
 	if (!try_module_get(THIS_MODULE))
 		return -ENOSYS;
-	uid_t old_euid = (uid_t)elevate_privileges();
+	const uid_t old_euid = elevate_privileges();
 	if (get_euid() != 0) { // if this is not zero we have an error
 		WARNING("Failed to elevate the privileges\n");
 		module_put(THIS_MODULE);
 		return old_euid;
 	}
-	int ret = rm_reconfigure(op, path);
+	const int ret = rm_reconfigure(op, path);
 	if (ret != 0) {
 		WARNING("failed to reconfigure the monitor with error: %d\n", ret);
 	}
 	// restore the privileges
-	int priv_err = reset_privileges(old_euid);
+	const int priv_err = reset_privileges(old_euid);
 	if (priv_err != 0) {
 		WARNING("Failed to reset the privileges\n");
 		module_put(THIS_MODULE);
@@ -213,6 +217,9 @@ __SYSCALL_DEFINEx(1, _pwd_check, const char __user *, pwd) {
 
 /* Required module's reference. */
 struct module *scth_mod = NULL;
+
+/* Module mutex. */
+static DEFINE_MUTEX(module_mutex);
 
 static int __init kremfip_init(void) {
 	// Lock the SCTH module.
@@ -305,6 +312,3 @@ static void __exit kremfip_exit(void) {
 
 module_init(kremfip_init);
 module_exit(kremfip_exit);
-MODULE_DESCRIPTION("Reference Monitor File System");
-MODULE_LICENSE("GPL");
-MODULE_AUTHOR("Andrea Efficace");
