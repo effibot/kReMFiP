@@ -95,29 +95,5 @@ printk(KERN_INFO "The size of the hash table is too big. We'll reduce to 32 bits
  */
 #define RM_PWD_HASH_ATTR_NAME "pwd_hash"	// the name of the attribute
 #define RM_PWD_HASH_PATH "/sys/module/kremfip/pwd_hash/pwd_hash" // the path to the attribute
-
-#else
-
-// THIS SECTION IS ONLY FOR THE USER SPACE
-
-// Define the system call numbers
-#ifndef __NR_state_get
-#define __NR_state_get 134 // retrieves the state of the reference monitor
 #endif
-
-#ifndef __NR_state_set
-#define __NR_state_set 174 // sets the state of the reference monitor
-#endif
-
-#ifndef __NR_reconfigure
-#define __NR_reconfigure 177 // reconfigures the reference monitor
-#endif
-
-#ifndef __NR_pwd_check
-#define __NR_pwd_check 178 // checks the password
-#endif
-
-#endif
-// user_space
-
 #endif

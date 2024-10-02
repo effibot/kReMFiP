@@ -218,23 +218,16 @@ __SYSCALL_DEFINEx(1, _pwd_check, const char __user *, pwd) {
 /* Required module's reference. */
 struct module *scth_mod = NULL;
 
-/* Module mutex. */
-static DEFINE_MUTEX(module_mutex);
 
 static int __init kremfip_init(void) {
-	// Lock the SCTH module.
-	mutex_lock(&module_mutex);
-	scth_mod = find_module("SCTH");
-	if (!try_module_get(scth_mod)) {
-		mutex_unlock(&module_mutex);
-		printk(KERN_ERR "%s: SCTH module not found.\n", MODNAME);
-		return -EPERM;
+	// Check if the SCTH module is loaded by inspecting the existence of its /sysfs folder
+	if (unlikely(!path_exists("/sys/module/scth"))) {
+		WARNING("The SCTH module is not loaded\n");
+		return -ENOENT;
 	}
-	mutex_unlock(&module_mutex);
 	// the system call is exposed, we can hack it later
-
+	INFO("The SCTH module is loaded")
 	rm_p = rm_init();
-
 	if (unlikely(rm_p == NULL)) {
 		printk(KERN_ERR "Failed to initialize the reference monitor\n");
 		rm_free(rm_p);
@@ -273,7 +266,8 @@ static int __init kremfip_init(void) {
 	state_set_nr = scth_hack(__x64_sys_state_set);
 	reconfigure_nr = scth_hack(__x64_sys_reconfigure);
 	pwd_check_nr = scth_hack(__x64_sys_pwd_check);
-	if (state_get_nr < 0 || state_set_nr < 0 || reconfigure_nr < 0 || pwd_check_nr < 0) {
+	pr_info("%d", state_get_nr);
+	if (state_get_nr < 0) {
 		scth_cleanup();
 		rm_free(rm_p);
 		module_put(scth_mod);

@@ -13,7 +13,7 @@
 #include <sys/types.h>
 #include "../src/include/kremfip.h"
 #include "../src/utils/misc.h"
-
+#include "../scth/headers/scth_lib.h"
 // To get state:
 /**
 * state_t *state;
@@ -38,28 +38,36 @@ if (ret < 0) {
 
 
 int main(int argc, char *argv[]) {
+	state_t *state;
+	state = calloc(1, sizeof(state_t));
 	int ret;
-	// be sure that the monitor is reconfigurable
-	state_t new_state = REC_ON;
-	ret = state_set(&new_state);
+	ret = state_get(state);
 	if (ret < 0) {
-		printf("Error: %s\n", strerror(errno));
-		return -1;
+			printf("Error: %s\n", strerror(errno));
+			return -1;
 	}
-	printf("State set\n");
-	char *path = "/home/effivm/file0.txt";
-	char *invalid_path = "/home/effivm/file_i.txt";
-	path_op_t op = PROTECT_PATH;
-	ret = reconfigure(&op, path);
-	if (ret < 0) {
-		printf("Error: %s\n", strerror(errno));
-		return -1;
-	}
-	printf("Reconfigured for path %s\n", path);
-	ret = reconfigure(&op, invalid_path);
-	if (ret < 0) {
-		printf("Error: %s\n", strerror(errno));
-	}
-	printf("end\n");
+	//int ret;
+	//// be sure that the monitor is reconfigurable
+	//state_t new_state = REC_ON;
+	//ret = state_set(&new_state);
+	//if (ret < 0) {
+	//	printf("Error: %s\n", strerror(errno));
+	//	return -1;
+	//}
+	//printf("State set\n");
+//	char *path = "/home/effivm/file0.txt";
+//	char *invalid_path = "/home/effivm/file_i.txt";
+//	path_op_t op = PROTECT_PATH;
+//	ret = reconfigure(&op, path);
+//	if (ret < 0) {
+//		printf("Error: %s\n", strerror(errno));
+//		return -1;
+//	}
+//	printf("Reconfigured for path %s\n", path);
+//	ret = reconfigure(&op, invalid_path);
+//	if (ret < 0) {
+//		printf("Error: %s\n", strerror(errno));
+//	}
+//	printf("end\n");
 	return 0;
 }

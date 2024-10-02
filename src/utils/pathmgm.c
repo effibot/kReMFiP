@@ -125,30 +125,45 @@ int get_abs_path(const char *path, char *abs_path) {
 }
 
 bool is_dir(const char *path) {
-	struct kstat stat;
-	if (unlikely(vfs_stat(path, &stat) != 0)) {
-		WARNING("Unable to get the stat of the path\n");
+	struct path p;
+	const int ret = kern_path(path, LOOKUP_FOLLOW, &p);
+	if (ret) {
+		WARNING("Unable to resolve the path\n");
 		return false;
 	}
-	return S_ISDIR(stat.mode);
+	const struct dentry *dentry = p.dentry;
+	const bool is_directory = S_ISDIR(dentry->d_inode->i_mode);
+	path_put(&p);
+	return is_directory;
 }
 
 bool is_file(const char *path) {
-	struct kstat stat;
-	if (unlikely(vfs_stat(path, &stat) != 0)) {
-		WARNING("Unable to get the stat of the path\n");
+	struct path p;
+	// Resolve the path to a struct path
+	if (kern_path(path, LOOKUP_FOLLOW, &p) != 0) {
+		WARNING("Unable to resolve the path\n");
 		return false;
 	}
-	return S_ISREG(stat.mode);
+	// Get the inode from the dentry
+	const struct inode *inode = p.dentry->d_inode;
+	// Check if the inode represents a regular file
+	const bool is_regular_file = S_ISREG(inode->i_mode);
+	// Release the path
+	path_put(&p);
+	return is_regular_file;
 }
 
 bool is_symlink(const char *path) {
-	struct kstat stat;
-	if (unlikely(vfs_stat(path, &stat) != 0)) {
-		WARNING("Unable to get the stat of the path\n");
+	struct path p;
+	const int ret = kern_path(path, LOOKUP_FOLLOW, &p);
+	if (ret) {
+		WARNING("Unable to resolve the path\n");
 		return false;
 	}
-	return S_ISLNK(stat.mode);
+	const struct dentry *dentry = p.dentry;
+	const bool is_symlink = S_ISLNK(dentry->d_inode->i_mode);
+	path_put(&p);
+	return is_symlink;
 }
 
 int get_dir_path(const char *path, char *dir_path) {
@@ -169,7 +184,7 @@ int get_dir_path(const char *path, char *dir_path) {
 		return -ENOMEM;
 	}
 	// Copy the path into the temporary buffer
-	int ret = (int)strscpy(tmp_path, path, PATH_MAX);
+	int ret = strscpy(tmp_path, path, PATH_MAX);
 	if (ret <= 0) {
 		WARNING("Unable to copy the path\n");
 		kfree(tmp_path);

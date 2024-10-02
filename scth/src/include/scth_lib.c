@@ -305,55 +305,31 @@ EXPORT_SYMBOL(scth_finder);
 
 /**
  * @brief Returns the array of known indexes pointing to "ni_syscall".
- * As this is a User interface, we don't want to expose the internal array, we use the
- * sysfs interface to return the array of known indexes.
- * @return Array of known indexes.
+ * Since this is a kernel-space interface, we just build the array and return it.
+ * @return The number of indexes or an error code.
  */
-int *scth_get_sysnis(void) {
+int scth_get_sysnis(int *sysnis) {
 	// Be sure that the module is loaded and the array is populated.
-	if (avail_sysnis == NULL)
-		return NULL;
+	if (avail_sysnis == NULL || sysnis == NULL)
+		return -EFAULT;
 	// Just to be sure, grab the lock
 	mutex_lock(&scth_lock);
-	char *buf = (char *)kzalloc(PAGE_SIZE, GFP_KERNEL);
-	if (buf == NULL) {
-		printk(KERN_ERR "%s: Failed to allocate memory for the buffer.\n", MODNAME);
-		return NULL;
-	}
-	// Read from the sysfs file
-	struct file *f = filp_open("/sys/kernel/scth/sysnis", O_RDONLY, 0);
-	if (IS_ERR(f)) {
-		printk(KERN_ERR "%s: Failed to open the sysfs file.\n", MODNAME);
-		kfree(buf);
-		return NULL;
-	}
-	// Read the file content.
-	const ssize_t bytes_read = kernel_read(f, buf, PAGE_SIZE, &f->f_pos);
-	if (bytes_read < 0) {
-		printk(KERN_ERR "%s: Failed to read the sysfs file.\n", MODNAME);
-		kfree(buf);
-		filp_close(f, NULL);
-		return NULL;
-	}
-	// Close the file
-	filp_close(f, NULL);
-
 	// Count the number of hacked entries.
-	int j = 0;
+	int size = 0;
 	for (int i = 0; i < nr_sysnis; i++)
-		if (avail_sysnis[i].hacked)
-			j++;
-	// Prepare the buffer to return.
-	int *sysnis = kzalloc(j * sizeof(int), GFP_KERNEL);
-	if (sysnis == NULL) {
-		printk(KERN_ERR "%s: Failed to allocate memory for the array.\n", MODNAME);
-		kfree(buf);
-		return NULL;
-	}
+		if (!avail_sysnis[i].hacked)
+			size++;
 	// Fill the array with the indexes of the hacked entries.
-	for (int i = 0, k = 0; i < nr_sysnis; i++)
-		if (avail_sysnis[i].hacked)
-			sysnis[k++] = avail_sysnis[i].tab_index;
-
-	return sysnis;
+	for (int i = 0, k = 0; i < nr_sysnis && k < size; i++, k++)
+		if (!avail_sysnis[i].hacked)
+			sysnis[k] = avail_sysnis[i].tab_index;
+	// Release the lock and return the number of indexes.
+	sysnis = krealloc(sysnis, size * sizeof(int), GFP_KERNEL);
+	if(sysnis == NULL) {
+		mutex_unlock(&scth_lock);
+		return -ENOMEM;
+	}
+	mutex_unlock(&scth_lock);
+	return size;
 }
+EXPORT_SYMBOL(scth_get_sysnis);

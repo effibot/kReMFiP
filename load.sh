@@ -8,4 +8,8 @@ printf "Loading the kReMFiP module...\nEnter a password to use when reconfigurin
 read -rp "Password: " -s password  && echo
 echo "Password accepted."
 sudo insmod kremfip.ko module_pwd="$password"
+if [ $? -ne 0 ]; then
+    echo "Failed to load the kReMFiP module."
+    exit 1
+fi
 echo "kReMFiP module loaded."

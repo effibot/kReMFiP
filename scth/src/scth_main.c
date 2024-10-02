@@ -45,62 +45,57 @@ DEFINE_MUTEX(scth_lock);
 
 /* Show function for the sysnis_kobj. */
 static ssize_t sysnis_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf);
+static ssize_t hsysnis_show(struct kobject * kobj, struct kobj_attribute * attr, char * buf);
 
 /* The sysnis attribute of the sysnis_kobj.
  * As we only need to read the sysnis, we can define it as read-only.
  * Also, we don't need a fully-fledged kobject since we just want to expose a file
  * and the module kset is already available.
  */
-static struct kobj_attribute sysnis_attr = __ATTR_RO(sysnis);
-
-// Add a system call to export the available indexes
-__SYSCALL_DEFINEx(1, _get_sysnis, int *, arg) {
-	const int *sysnis = scth_get_sysnis();
-	if (sysnis == NULL) {
-		return -EFAULT;
-	}
-	if (copy_to_user(arg, sysnis, nr_sysnis * sizeof(int))) {
-		return -EFAULT;
-	}
-	return 0;
-}
-
+static struct kobj_attribute sysnis_attr = __ATTR(sysnis, 0444, sysnis_show, NULL);
+static struct kobj_attribute hsysnis_attr = __ATTR(hsysnis, 0444, hsysnis_show, NULL);
 /* Module initialization routine. */
 static int __init scth_init(void) {
+	// Inspect system memory and find the system call table address
 	void **table_addr = scth_finder();
 	if (table_addr == NULL) {
 		printk(KERN_ERR "%s: Shutdown...\n", MODNAME);
 		return -EFAULT;
 	}
+	// at this point, all our data structures are initialized and can be used.
+
 	// Create the kobject
-	if(sysfs_create_file(&THIS_MODULE->mkobj.kobj, &sysnis_attr.attr)) {
+	if (sysfs_create_file(&THIS_MODULE->mkobj.kobj, &sysnis_attr.attr)) {
 		printk(KERN_ERR "Error creating the sysnis attribute\n");
 		return -EFAULT;
 	}
-	// Reserve the first index to add our own system call
-	const int ret = scth_hack(__x64_sys_get_sysnis);
-	if (ret < 0) {
-		printk(KERN_ERR "%s: Shutdown...\n", MODNAME);
+	if (sysfs_create_file(&THIS_MODULE->mkobj.kobj, &hsysnis_attr.attr)) {
+		printk(KERN_ERR "Error creating the sysnis attribute\n");
 		return -EFAULT;
 	}
-
-	struct file *f = filp_open("/sys/module/scth/sysnis", O_RDONLY, 0);
-	if (IS_ERR(f)) {
-		printk(KERN_ERR "Error opening the sysnis file\n");
-		return -EFAULT;
+	// Prepare the buffer to return, at least we have nr_sysnis entries
+	int *sysnis = kzalloc(nr_sysnis * sizeof(int), GFP_KERNEL);
+	if (sysnis == NULL) {
+		printk(KERN_ERR "%s: Failed to allocate memory for the array.\n", MODNAME);
+		return -ENOMEM;
 	}
-	char *buf = kzalloc(PAGE_SIZE, GFP_KERNEL);
-	ssize_t bytes_read = kernel_read(f, buf, PAGE_SIZE, &f->f_pos);
-	if (bytes_read < 0) {
-		printk(KERN_ERR "Error reading the sysnis file\n");
+	// Get the indexes of the unused system calls
+	const int avail_num = scth_get_sysnis(sysnis);
+	if (avail_num < 0) {
+		printk(KERN_ERR "Error getting the sysnis\n");
 		return -EFAULT;
 	}
 	// Log some messages
+	if(avail_num == 0) {
+		printk(KERN_INFO "No system calls are available\n");
+		return 0;
+	}
 	printk(KERN_INFO "%s: Ready, %d available entries.\n", MODNAME, nr_sysnis);
 	printk(KERN_CONT "The corresponding indexes are:\n");
-	printk(KERN_CONT "%s", buf);
+	for (int i = 0; i < avail_num ; i++) {
+		printk(KERN_CONT "%d ", sysnis[i]);
+	}
 	printk(KERN_CONT "\n");
-
 	printk(KERN_INFO "The system call table is exposed\n");
 	return 0;
 }
@@ -111,6 +106,7 @@ module_init(scth_init);
 static void __exit scth_exit(void) {
 	scth_cleanup();
 	sysfs_remove_file(&THIS_MODULE->mkobj.kobj, &sysnis_attr.attr);
+	sysfs_remove_file(&THIS_MODULE->mkobj.kobj, &hsysnis_attr.attr);
 	printk(KERN_INFO "%s: Shutdown...\n", MODNAME);
 }
 
@@ -126,13 +122,21 @@ module_exit(scth_exit);
  */
 static ssize_t sysnis_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf) {
 	int len = 0;
-	// Loop over the unused syscalls
 	for (int i = 0; i < nr_sysnis; i++) {
-		// If the syscall is not used, add it to the buffer
-		if(!avail_sysnis[i].hacked)
+		if (!avail_sysnis[i].hacked) {
 			len += sprintf(buf + len, "%d ", avail_sysnis[i].tab_index);
+		}
 	}
-	// Add a newline at the end and return the number of bytes written
+	len += sprintf(buf + len, "\n");
+	return len;
+}
+static ssize_t hsysnis_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf) {
+	int len = 0;
+	for (int i = 0; i < nr_sysnis; i++) {
+		if (avail_sysnis[i].hacked) {
+			len += sprintf(buf + len, "%d ", avail_sysnis[i].tab_index);
+		}
+	}
 	len += sprintf(buf + len, "\n");
 	return len;
 }
