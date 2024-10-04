@@ -90,7 +90,6 @@ rm_t *rm_init(void) {
 		kfree(rm);
 		return NULL;
 	}
-
 	// store the password hash in the dedicated sysfs file
 	// we crate a subfolder under /sys/module/kremfip
 	rm->kobj = kobject_create_and_add(RM_PWD_HASH_ATTR_NAME, &THIS_MODULE->mkobj.kobj);
@@ -117,6 +116,8 @@ rm_t *rm_init(void) {
 #ifdef DEBUG
 	INFO("Password hash stored successfully\n");
 #endif
+	// Initialize the spinlock
+	spin_lock_init(&rm->lock);
 #ifdef DEBUG
 	INFO("Reference Monitor Initialized successfully\n");
 #endif
@@ -263,14 +264,19 @@ int rm_open_pre_handler(struct kprobe *ri, struct pt_regs *regs) {
 	}
 
 	// The path could be a relative path. We decided to work only with absolute paths, so we need to obtain it.
-	char *abs_path = kmalloc(PATH_MAX, GFP_KERNEL);
+	char *abs_path = kzalloc(PATH_MAX, GFP_KERNEL);
+	if (unlikely(abs_path == NULL)) {
+		WARNING("Failed to allocate memory for the absolute path");
+		return -ENOMEM;
+	}
 	int ret = get_abs_path(path, abs_path);
 	int not_exists = 0;
-	// if we could't resolve the path, abs_path is filled with the error keyword
+	// if we can't resolve the path, abs_path is filled with the error keyword
 	if(strcmp(abs_path, PATH_NOT_FOUND) == 0) {
 		WARNING("Path not found\n");
 		// we flip the flag because we still should check if the file is being created
-		kfree(abs_path);
+		kfree(abs_path); // maybe just memset to 0?
+		// if the file is being created, the error is legit and we have to flip the flag
 		if (flags & (O_CREAT | __O_TMPFILE | O_EXCL)) {
 			not_exists = 1;
 		}
@@ -281,33 +287,73 @@ int rm_open_pre_handler(struct kprobe *ri, struct pt_regs *regs) {
 		return ret;
 	}
 	// We can fall into 2 cases now:
-	// 1. The path is not found and is being created
-	// 2. The path is found
-	// get the file descriptor
-	int dfd = (int)regs->di;
-#ifdef DEBUG
-	INFO("Intercepted open syscall at %s with flags %d and fd %d\n", path, flags, dfd);
-#endif
-	// Case 1
-	// find the process working directory
-	char* dir_path = kzalloc(PATH_MAX, GFP_KERNEL);
-	if (unlikely(dir_path == NULL)) {
-		WARNING("Failed to get the directory path");
+	// 1. The path is found
+	// 2. The path is not found and is being created
+	char* path_to_check = kzalloc(PATH_MAX, GFP_KERNEL);
+	if (unlikely(path_to_check == NULL)) {
+		WARNING("Failed to allocate memory for the path to check");
 		kfree(abs_path);
 		return -ENOMEM;
 	}
-	get_dir_path(path, dir_path);
+	if (not_exists == 0) {
+		// Case 1
+		// get the file descriptor
+		int dfd = (int)regs->di;
+#ifdef DEBUG
+		INFO("Intercepted open syscall at %s with flags %d and fd %d\n", path, flags, dfd);
+#endif
+		path_to_check = kstrdup(abs_path, GFP_KERNEL);
+	} else {
+		// Case 2
+		/* We have to create the file, but to do so we need to check if the directory is protected.
+		 * We need to do two things:
+		 * 1. Check if we have to create the file in the current directory.
+		 *		If so, we have to check if the directory is protected.
+		 * 2. Check if we have to create the file in a external directory. Since the open syscall
+		 *		could be used to make a recursive creation like in mkdir -p, we need to check if
+		 *		the least common ancestor is protected. We can do this by checking the path up to
+		 *		the last slash, iteratively, until we reach an existing directory.
+		 *		If the existing directory is protected, we have to reject the call.
+		 */
+		// TODO Check if we have to create the file in the current directory
+		// TODO: check if the current directory is protected
+	case2loop:
+		// get the pointer to the last slash
+		char* last_slash = strrchr(path, '/');
+		if (unlikely(last_slash == NULL)) {
+			WARNING("Failed to get the last slash in the path");
+			kfree(path_to_check);
+			return -EINVAL;
+		}
+		// get the length of the path up to the last slash
+		const size_t len = last_slash - path;
+		// copy the path up to the last slash
+		strncpy(path_to_check, path, len);
+		// check if the path exists
+		if (unlikely(!path_exists(path_to_check))) {
+			WARNING("The path %s does not exist, checking the ancestor\n", path_to_check);
+			goto case2loop;
+		}
+	}
+
+	// // find the process working directory
+	// char* dir_path = kzalloc(PATH_MAX, GFP_KERNEL);
+	// if (unlikely(dir_path == NULL)) {
+	// 	WARNING("Failed to get the directory path");
+	// 	kfree(abs_path);
+	// 	return -ENOMEM;
+	// }
+	// get_dir_path(path, dir_path);
 
 	// Check if the path is protected
-	bool is_prot = is_protected(abs_path);
-	// check if the path is a directory
-	bool dir = is_dir(abs_path);
+	const bool must_protect = is_protected(path_to_check);
 	int reject_call = 0;
-	if (is_prot) {
-		INFO("The path is being protected by monitor %s, open in read-only mode.\n", rm->name);
+	if (must_protect) {
+		INFO("Attempt to open a protected resource at %s\n", path_to_check);
 		reject_call = 1;
 		goto log_open;
 	}
+	// The path is not protected, so we can allow the open syscall
 	return 0;
 log_open:
 	// TODO: log the open syscall

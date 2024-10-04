@@ -30,6 +30,8 @@ inline int rm_state_get(state_t __user *u_state) {
 #endif
 		return -EINVAL;
 	}
+	// Grab the lock, so that we can have exclusive access to the reference monitor and its state
+	spin_lock(&rm_p->lock);
 	// access to the kernel space where the reference monitor is stored
 	state_t state;
 	int ret;
@@ -44,8 +46,10 @@ inline int rm_state_get(state_t __user *u_state) {
 #endif
 	if (ret != 0) {
 		WARNING("failed to copy to user\n");
+		spin_unlock(&rm_p->lock);
 		return -EFAULT;
 	}
+	spin_unlock(&rm_p->lock);
 	return 0;
 }
 
@@ -58,10 +62,6 @@ inline int rm_state_get(state_t __user *u_state) {
  * @return 0 on success, -1 on error
  */
 inline int rm_state_set(const state_t __user *u_state) {
-	if (get_euid() != 0) {
-		WARNING("The user is not root, cannot change the state\n");
-		return -EPERM;
-	}
 	int ret = 0;
 	// Check if the reference monitor is initialized
 	if (unlikely(rm_p == NULL)) {
@@ -74,6 +74,8 @@ inline int rm_state_set(const state_t __user *u_state) {
 		ret = -EPERM;
 		goto out;
 	}
+	// Grab the lock
+	spin_lock(&rm_p->lock);
 	// Copy the state from the user space to the kernel space
 	state_t *new_state = map_user_buffer(u_state, sizeof(state_t));
 	map_check(new_state) {
@@ -97,6 +99,7 @@ inline int rm_state_set(const state_t __user *u_state) {
 	// Free the allocated memory
 state_out:
 	kfree(new_state);
+	spin_unlock(&rm_p->lock);
 out:
 	return ret;
 }
@@ -109,10 +112,6 @@ out:
  * @return 0 on success, error code on error
  */
 inline int rm_reconfigure(const path_op_t __user *op, const char __user *path) {
-	if (get_euid() != 0) {
-		WARNING("The user is not root, cannot reconfigure the monitor\n");
-		return -EPERM;
-	}
 	// Check if the reference monitor is initialized
 	if (unlikely(rm_p == NULL)) {
 		WARNING("Passing a NULL reference monitor to the system call\n");
@@ -124,8 +123,9 @@ inline int rm_reconfigure(const path_op_t __user *op, const char __user *path) {
 		ret = -EPERM;
 		goto out;
 	}
-	// We don't check if the state is REC_x because it's checked before calling this function
-	// Check if the operation is valid
+	//! We don't check if the state is REC_x because it's checked before calling this function
+	// Grab the lock
+	spin_lock(&rm_p->lock);
 	ret = 0;
 	// Check if the path is valid
 	const char *kpath = map_user_buffer(path, strnlen_user(path, PAGE_SIZE));
@@ -191,6 +191,7 @@ op_out:
 path_out:
 	kfree(kpath);
 	kfree(abs_path);
+	spin_unlock(&rm_p->lock);
 out:
 	return ret;
 }

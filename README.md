@@ -18,4 +18,4 @@ a Kernel-level Reference Monitor for File Protection
 - [ ] implement the deferred work to compute the hash and write the log file.
 - [x] add permission changing when reconfiguring the reference monitor
 - [x] Checks user's effective user id when reconfiguring the reference monitor.
-- [ ] Add spinlocks to protect multiple reconfigure calls or set_state calls.
+- [x] Add spinlocks to protect multiple reconfigure calls or set_state calls.

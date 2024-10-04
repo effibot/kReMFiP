@@ -41,10 +41,10 @@ MODULE_VERSION("1.0");
  * Since we have to runtime installs system calls we need to check the kernel version and
  * limit the module to a specific range of versions. The lower bound is to don't be bothered
  * with the old kernel versions, while the upper bound is to avoid the changes in the system
- * call management that happened after the 5.15 version.
+ * call management that happened after the 5.4 version.
  */
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 17, 0) && LINUX_VERSION_CODE <= KERNEL_VERSION(5, 15, 0)
-#error "This module requires kernel in range [4.17.x, 5.15.x]"
+#if !(LINUX_VERSION_CODE >= KERNEL_VERSION(4, 17, 0) && LINUX_VERSION_CODE <= KERNEL_VERSION(5, 5, 0))
+#error "This module requires kernel in range [4.17.x, 5.4.x]"
 #endif
 
 //#define TEST

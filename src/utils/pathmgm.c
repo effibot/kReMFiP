@@ -88,15 +88,19 @@ int get_abs_path(const char *path, char *abs_path) {
 	struct path p;
 	// let the kernel resolves the path
 	int ret = kern_path(path, LOOKUP_FOLLOW, &p);
+	// If we fail to resolve the path, even if it is absolute, it means that the path does not exist
 	if (ret) {
 		WARNING("Unable to resolve the path\n");
+		ret = -ENOENT;
 		if(strscpy(abs_path, PATH_NOT_FOUND, PATH_MAX) != strlen(PATH_NOT_FOUND)) {
 			WARNING("Unable to copy the path not found message\n");
+			ret = -ENOMEM;
 		}
 		return ret;
 	}
+	// We resolved the path, but it could be a symlink or a relative path, so:
 	// Allocate temporary buffer to store the path
-	char *tmp_path = kmalloc(PATH_MAX, GFP_KERNEL);
+	char *tmp_path = kzalloc(PATH_MAX, GFP_KERNEL);
 	if (unlikely(tmp_path == NULL)) {
 		WARNING("Unable to allocate memory for the path\n");
 		// release the path
@@ -116,7 +120,7 @@ int get_abs_path(const char *path, char *abs_path) {
         WARNING("Unable to copy the resolved path\n");
         kfree(tmp_path);
         path_put(&p); // Release the path on failure
-        return -ENOENT;
+        return -ENOMEM;
     }
 	// Clean up
 	kfree(tmp_path);

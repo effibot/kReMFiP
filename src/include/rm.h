@@ -7,6 +7,7 @@
 #include "constants.h"
 #include <linux/module.h>
 #include <linux/kprobes.h>
+#include <linux/spinlock.h>
 
 typedef struct _rm_t {
 	const char *name; // Name of the reference monitor
@@ -20,6 +21,7 @@ typedef struct _rm_t {
 	struct workqueue_struct *wq; // Workqueue for the reference monitor
 	struct work_struct work; // Work structure for the reference monitor
 	struct kobject *kobj; // Kobject for the reference monitor
+	spinlock_t lock; // Spinlock for the reference monitor
 } rm_t;
 
 #define to_monitor_from_kobj(kobj) container_of(kobj, rm_t, kobj)
