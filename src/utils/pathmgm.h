@@ -12,7 +12,7 @@
 #include <linux/types.h>
 
 // Define a vector of invalid system paths
-#define INVALID_PATHS_NUM 19
+#define INVALID_PATHS_NUM 20
 
 // Define a keyword for path not found
 #define PATH_NOT_FOUND "Path not found"
@@ -43,7 +43,7 @@ bool is_symlink(const char *path);
  * @param abs_path the absolute path to fill
  * @return 0 or error codes on error.
  */
-int get_abs_path(const char *path, char* abs_path);
+int get_abs_path(const char *path, char *abs_path);
 
 /**
  * @brief Check if the path exists
@@ -67,5 +67,9 @@ bool is_valid_path(const char *path);
  */
 int get_dir_path(const char *path, char *dir_path);
 
-
+/**
+ * @brief Get the current process working directory
+ * @return the string containing the absolute path of the current working directory.
+ */
+char *get_cwd(void);
 #endif //PATHMGM_H

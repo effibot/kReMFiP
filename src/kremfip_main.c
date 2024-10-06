@@ -28,7 +28,7 @@
 #include <linux/syscalls.h>
 #include <linux/types.h>
 #include <linux/uaccess.h>
-
+#include <linux/kprobes.h>
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Andrea Efficace");
@@ -43,7 +43,8 @@ MODULE_VERSION("1.0");
  * with the old kernel versions, while the upper bound is to avoid the changes in the system
  * call management that happened after the 5.4 version.
  */
-#if !(LINUX_VERSION_CODE >= KERNEL_VERSION(4, 17, 0) && LINUX_VERSION_CODE <= KERNEL_VERSION(5, 5, 0))
+#if !(LINUX_VERSION_CODE >= KERNEL_VERSION(4, 17, 0) && \
+	  LINUX_VERSION_CODE <= KERNEL_VERSION(5, 5, 0))
 #error "This module requires kernel in range [4.17.x, 5.4.x]"
 #endif
 
@@ -215,9 +216,28 @@ __SYSCALL_DEFINEx(1, _pwd_check, const char __user *, pwd) {
 	return ret;
 }
 
+// KProbes
+static struct kprobe kp_open = {
+	.symbol_name = "do_filp_open",
+	.pre_handler = rm_open_pre_handler,
+};
+static struct kprobe kp_unlink = {
+	.symbol_name =  "do_unlinkat",
+	.pre_handler = rm_unlink_pre_handler,
+};
+
+static struct kprobe kp_mkdir = {
+	.symbol_name =  "do_mkdirat",
+	.pre_handler = rm_mkdir_pre_handler,
+};
+
+static struct kprobe kp_rmdir = {
+	.symbol_name =  "do_rmdir",
+	.pre_handler = rm_rmdir_pre_handler,
+};
+
 /* Required module's reference. */
 struct module *scth_mod = NULL;
-
 
 static int __init kremfip_init(void) {
 	// Check if the SCTH module is loaded by inspecting the existence of its /sysfs folder
@@ -238,7 +258,7 @@ static int __init kremfip_init(void) {
 	char thread_name[THREAD_NAME] = { 0 };
 
 	for (counter = 0; counter < WR_THREAD; ++counter) {
-		snprintf(thread_name, THREAD_NAME, "write_func_%d", counter);
+		snprintf(thread_name, THREAD_NAME, "write_func_%ud", counter);
 		task_write[counter] = kthread_create(write_func, NULL, thread_name);
 		if (IS_ERR(task_write[counter])) {
 			printk(KERN_ERR "Failed to create %s (%ld)\n", thread_name,
@@ -249,7 +269,7 @@ static int __init kremfip_init(void) {
 		}
 	}
 	for (counter = 0; counter < RD_THREAD; ++counter) {
-		snprintf(thread_name, THREAD_NAME, "read_func_%d", counter);
+		snprintf(thread_name, THREAD_NAME, "read_func_%ud", counter);
 		task_read[counter] = kthread_create(read_func, NULL, thread_name);
 		if (IS_ERR(task_read[counter])) {
 			printk(KERN_ERR "Failed to create %s (%ld)\n", thread_name,
@@ -271,9 +291,47 @@ static int __init kremfip_init(void) {
 		scth_cleanup();
 		rm_free(rm_p);
 		module_put(scth_mod);
-		WARNING("Failed to install state syscall at %d\n", state_get_nr);
+		WARNING("Failed to install state get syscall at %d\n", state_get_nr);
 		return -EPERM;
 	}
+	if (state_set_nr < 0) {
+		scth_cleanup();
+		rm_free(rm_p);
+		module_put(scth_mod);
+		WARNING("Failed to install state set syscall at %d\n", state_set_nr);
+		return -EPERM;
+	}
+	if (reconfigure_nr < 0) {
+		scth_cleanup();
+		rm_free(rm_p);
+		module_put(scth_mod);
+		WARNING("Failed to install reconfigure syscall at %d\n", reconfigure_nr);
+		return -EPERM;
+	}
+	if (pwd_check_nr < 0) {
+		scth_cleanup();
+		rm_free(rm_p);
+		module_put(scth_mod);
+		WARNING("Failed to install pwd check syscall at %d\n", pwd_check_nr);
+		return -EPERM;
+	}
+	// Register the KProbes
+	if (register_kprobe(&kp_open) < 0) {
+		WARNING("Failed to register kprobe for do_filp_open\n");
+		return -EPERM;
+	}
+	// if (register_kprobe(&kp_unlink) < 0) {
+	// 	WARNING("Failed to register kprobe for do_unlinkat\n");
+	// 	return -EPERM;
+	// }
+	// if (register_kprobe(&kp_mkdir) < 0) {
+	// 	WARNING("Failed to register kprobe for do_mkdirat\n");
+	// 	return -EPERM;
+	// }
+	// if (register_kprobe(&kp_rmdir) < 0) {
+	// 	WARNING("Failed to register kprobe for do_rmdir\n");
+	// 	return -EPERM;
+	// }
 	printk(KERN_INFO "kReMFiP module loaded\n");
 	return 0;
 }
@@ -297,6 +355,11 @@ static void __exit kremfip_exit(void) {
 #endif
 	// Unregister the system call
 	scth_cleanup();
+	//unregistering kprobes
+	unregister_kprobe(&kp_open);
+	unregister_kprobe(&kp_unlink);
+	unregister_kprobe(&kp_mkdir);
+	unregister_kprobe(&kp_rmdir);
 	// Dereference the SCTH module
 	module_put(scth_mod);
 	// Free the reference monitor

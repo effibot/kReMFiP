@@ -24,7 +24,8 @@ static size_t __ht_count_list(node_t *list); // count the number of elements in 
 
 // RCU independent functions
 static size_t __ht_index(uint64_t key); // get the bucket were the node should be in the hash table
-static void __node_reclaim_callback(struct rcu_head *rcu); // callback to free the memory of the node
+static void
+__node_reclaim_callback(struct rcu_head *rcu); // callback to free the memory of the node
 /**
  * @name ht_get_instance
  * @brief Get the global hash table instance like a singleton.
@@ -84,7 +85,7 @@ ret_null:
  * @return the data if found, NULL otherwise
  */
 node_t *ht_lookup(ht_t *ht, const uint64_t key) {
-	if (unlikely(ht == NULL || key <= 0)) {
+	if (unlikely(ht == NULL)) {
 #ifdef DEBUG
 		WARNING("Passing null table (%p) or invalid key (%llu)\n", ht, key);
 #endif
@@ -93,7 +94,11 @@ node_t *ht_lookup(ht_t *ht, const uint64_t key) {
 	// find the bucket where the data should be
 	const size_t bkt = __ht_index(key);
 	// define the loop cursor
-	node_t *tmp_node;
+	node_t *tmp_node = kzalloc(sizeof(*tmp_node), GFP_KERNEL);
+	if(tmp_node == NULL) {
+		WARNING("Failed to allocate memory for the node\n");
+		goto not_found;
+	}
 	/*[RCU] - Read Critical Section
      * we need to iterate over the linked list at the given index
      * in the hash table so we need to lock the hash table
@@ -182,7 +187,16 @@ int ht_destroy(ht_t *ht) {
 	for (size_t i = 0; i < HT_SIZE; i++) {
 		node_t *tmp_head = rcu_dereference_protected(ht->table[i], lockdep_is_held(&ht->lock[i]));
 		// free the memory allocated for the elements in the list
-		node_t *tmp_node, *tmp_next;
+		node_t *tmp_node = kzalloc(sizeof(tmp_node), GFP_KERNEL);
+		if(tmp_node == NULL) {
+			WARNING("Failed to allocate memory for the node\n");
+			return -ENOMEM;
+		}
+		node_t *tmp_next = kzalloc(sizeof(tmp_next), GFP_KERNEL);
+		if(tmp_next == NULL) {
+			WARNING("Failed to allocate memory for the node\n");
+			return -ENOMEM;
+		}
 		list_for_each_entry_safe(tmp_node, tmp_next, &tmp_head->list, list) {
 			list_del_rcu(&tmp_node->list);
 			call_rcu(&tmp_node->rcu, __node_reclaim_callback);
@@ -246,7 +260,11 @@ size_t __ht_count_list(node_t *list) {
 	}
 	// initialize the counter
 	size_t count = 0;
-	struct list_head *node;
+	struct list_head *node = kzalloc(sizeof(node), GFP_KERNEL);
+	if (unlikely(node == NULL)) {
+		WARNING("Failed to allocate memory for the node\n");
+		return -ENOMEM;
+	}
 	// iterate over the list
 	list_for_each_rcu(node, &list->list) {
 		count++;
@@ -262,7 +280,7 @@ size_t __ht_count_list(node_t *list) {
  */
 size_t *ht_count(ht_t *ht) {
 	size_t *count = kzalloc(HT_SIZE * sizeof(size_t), GFP_KERNEL);
-	if(unlikely(count == NULL)) {
+	if (unlikely(count == NULL)) {
 		WARNING("Failed to allocate memory for the count array\n");
 		return NULL;
 	}
@@ -294,7 +312,7 @@ ret:
  * @return the number of elements in the hash table at the given index
  */
 size_t ht_get_count_at(ht_t *ht, const size_t index) {
-	if (unlikely(ht == NULL || index < 0 || index >= HT_SIZE)) {
+	if (unlikely(ht == NULL || index >= HT_SIZE)) {
 #ifdef DEBUG
 		WARNING("Passing null table (%p) or invalid index (%lu)\n", ht, index);
 #endif
@@ -345,7 +363,11 @@ void __ht_print_list(node_t *list) {
 		return;
 	}
 	// print the elements in the list at the given index
-	node_t *tmp_head;
+	node_t *tmp_head = kzalloc(sizeof(*tmp_head), GFP_KERNEL);
+	if (unlikely(tmp_head == NULL)) {
+		WARNING("Failed to allocate memory for the node\n");
+		return;
+	}
 	list_for_each_entry_rcu(tmp_head, &list->list, list) {
 		// print [key::path]-> for each element in the list
 		printk(KERN_CONT "[%llu::%s]-->", tmp_head->key, tmp_head->path);

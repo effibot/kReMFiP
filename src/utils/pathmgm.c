@@ -5,17 +5,17 @@
 #include "pathmgm.h"
 #include <linux/dcache.h>
 #include <linux/fs.h>
+#include <linux/fs_struct.h>
 #include <linux/kernel.h>
 #include <linux/namei.h>
 #include <linux/path.h>
 #include <linux/slab.h>
 #include <linux/string.h>
 #include <linux/uaccess.h>
-
 // Define a vector of invalid system paths
 static const char *invalid_paths[INVALID_PATHS_NUM] = {
-	"bin",	"boot", "cdrom", "dev",	 "etc", "lib",		"lib64", "mnt", "opt", "proc",
-	"root", "run",	"sbin",	 "snap", "srv", "swapfile", "sys",	 "usr", "var"
+	"/bin",	 "/boot", "/cdrom", "/dev",	 "/etc", "/lib",	  "/lib64", "/mnt", "/opt", "/proc",
+	"/root", "/run",  "/sbin",	"/snap", "/srv", "/swapfile", "/sys",	"/usr", "/var", "/tmp"
 };
 
 /**
@@ -57,22 +57,43 @@ bool is_valid_path(const char *path) {
 
 	// Check for empty path, root directory, or paths like . or ..
 	if (len == 0 || strcmp(path, "/") == 0 || strcmp(path, ".") == 0 || strcmp(path, "..") == 0) {
+#ifdef DEBUG
 		WARNING("Invalid path: empty, root, or relative path\n");
+#endif
 		return false;
 	}
 
 	// Check for double slashes
 	if (strstr(path, "//") != NULL) {
+#ifdef DEBUG
 		WARNING("Double slashes in the path\n");
+#endif
 		return false;
 	}
 
 	// Check if the mount point or full path is in the list of invalid paths
 	for (int i = 0; i < INVALID_PATHS_NUM; i++) {
-		if (strcmp(path, invalid_paths[i]) == 0 ||
-			(path[0] == '/' && strcmp(path + 1, invalid_paths[i]) == 0)) {
+		if (strcmp(path, invalid_paths[i]) == 0) {
+#ifdef DEBUG
 			WARNING("Invalid path or mount point\n");
-			return false;
+#endif
+			return 0;
+		}
+	}
+	if (path[0] == '/') {
+		const char *first_slash = strchr(path + 1, '/');
+		if (first_slash) {
+			const size_t mnt_point_len = first_slash - path;
+			const char *mnt_point = kstrndup(path, mnt_point_len, GFP_KERNEL);
+			for (int i = 0; i < INVALID_PATHS_NUM; i++) {
+				if (strncmp(mnt_point, invalid_paths[i], mnt_point_len) == 0) {
+#ifdef DEBUG
+					WARNING("Invalid path or mount point\n");
+#endif
+					kfree(mnt_point);
+					return 0;
+				}
+			}
 		}
 	}
 
@@ -92,7 +113,7 @@ int get_abs_path(const char *path, char *abs_path) {
 	if (ret) {
 		WARNING("Unable to resolve the path\n");
 		ret = -ENOENT;
-		if(strscpy(abs_path, PATH_NOT_FOUND, PATH_MAX) != strlen(PATH_NOT_FOUND)) {
+		if (strscpy(abs_path, PATH_NOT_FOUND, PATH_MAX) != strlen(PATH_NOT_FOUND)) {
 			WARNING("Unable to copy the path not found message\n");
 			ret = -ENOMEM;
 		}
@@ -117,11 +138,11 @@ int get_abs_path(const char *path, char *abs_path) {
 	// Copy the resolved absolute path into the output buffer
 	ret = (int)strscpy(abs_path, resolved_path, PATH_MAX);
 	if (ret <= 0) {
-        WARNING("Unable to copy the resolved path\n");
-        kfree(tmp_path);
-        path_put(&p); // Release the path on failure
-        return -ENOMEM;
-    }
+		WARNING("Unable to copy the resolved path\n");
+		kfree(tmp_path);
+		path_put(&p); // Release the path on failure
+		return -ENOMEM;
+	}
 	// Clean up
 	kfree(tmp_path);
 	path_put(&p); // Release the path
@@ -188,8 +209,7 @@ int get_dir_path(const char *path, char *dir_path) {
 		return -ENOMEM;
 	}
 	// Copy the path into the temporary buffer
-	int ret = strscpy(tmp_path, path, PATH_MAX);
-	if (ret <= 0) {
+	if (strscpy(tmp_path, path, PATH_MAX) <= 0) {
 		WARNING("Unable to copy the path\n");
 		kfree(tmp_path);
 		return -EINVAL;
@@ -204,8 +224,7 @@ int get_dir_path(const char *path, char *dir_path) {
 	// Set the last element to null
 	*last = '\0';
 	// Copy the temporary path into the output buffer
-	ret = (int)strscpy(dir_path, tmp_path, PATH_MAX);
-	if (ret <= 0) {
+	if (strscpy(dir_path, tmp_path, PATH_MAX) <= 0) {
 		WARNING("Unable to copy the directory path\n");
 		kfree(tmp_path);
 		return -EINVAL;
@@ -213,4 +232,27 @@ int get_dir_path(const char *path, char *dir_path) {
 	// Clean up
 	kfree(tmp_path);
 	return 0;
+}
+
+char *get_cwd(void) {
+	// We use 'current' to get the current task, so no need manage it
+	const struct task_struct *task = current;
+	// Get the current working directory
+	struct path pwd_path;
+	get_fs_pwd(task->fs, &pwd_path);
+	// Get the path from the dentry, recursively from the end to the root
+	char *pwd = kzalloc(PATH_MAX, GFP_KERNEL);
+	if (unlikely(pwd == NULL)) {
+		WARNING("Unable to allocate memory for the path\n");
+		return NULL;
+	}
+	char *pwd_path_str = dentry_path_raw(pwd_path.dentry, pwd, PATH_MAX);
+	if (IS_ERR(pwd_path_str)) {
+		WARNING("Unable to get the path\n");
+		kfree(pwd);
+		return NULL;
+	}
+	// Release the path
+	path_put(&pwd_path);
+	return pwd_path_str;
 }
