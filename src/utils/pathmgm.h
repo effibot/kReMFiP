@@ -46,6 +46,15 @@ bool is_symlink(const char *path);
 int get_abs_path(const char *path, char *abs_path);
 
 /**
+ * @brief Get the path from the root
+ * @param dfd the file descriptor of the directory
+ * @param user_path the path to get the root from
+ * @param abs_path the absolute path to fill
+ * @return 0 or error codes on error.
+ */
+int get_abs_path_user(int dfd, const __user char *user_path, char *abs_path);
+
+/**
  * @brief Check if the path exists
  * @param path the path to check
  * @return true if the path exists, false otherwise

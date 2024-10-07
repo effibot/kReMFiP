@@ -265,31 +265,48 @@ int rm_open_pre_handler(struct kprobe *ri, struct pt_regs *regs) {
 #endif
 		return -EINVAL;
 	}
-	//const __user char *upath = fname->uptr;
-	const char *path = fname->name;
-	if (unlikely(path == NULL)) {
+	char* path = NULL;
+	const __user char *upath = fname->uptr;
+	const char *kpath = fname->name;
+	if (unlikely(kpath == NULL)) {
 #ifdef DEGBUG
 		WARNING("Invalid path for the open syscall");
 #endif
 		return -EINVAL;
 	}
-
-	// Avoid to check for temporary and/or system files
-	if(!is_valid_path(path)) {
-		// the path is not valid for our purposes, so we can allow the open syscall
-#ifdef DEBUG
-		INFO("skipping the check for the path %s\n", path);
-#endif
-		return 0;
-	}
-	INFO("probing the open syscall for the path %s\n", path);
-	// The path could be a relative path. We decided to work only with absolute paths, so we need to obtain it.
+	// Transform the path to an absolute path
 	char *abs_path = kzalloc(PATH_MAX, GFP_KERNEL);
 	if (unlikely(abs_path == NULL)) {
 		WARNING("Failed to allocate memory for the absolute path");
 		return -ENOMEM;
 	}
-	int ret = get_abs_path(path, abs_path);
+	// Avoid to check for temporary and/or system files
+	if(!is_valid_path(kpath)) {
+		// the path is not valid for our purposes, so we can allow the open syscall
+#ifdef DEBUG
+		INFO("skipping the check for the path %s\n", kpath);
+#endif
+		return 0;
+	}
+	// get the file descriptor
+	const int dfd = (int)regs->di;
+	// The user path could be null in special cases (like temporary files), so we have to check it
+	int ret = 0;
+	if(upath == NULL) {
+		// we discard the user-path and point to the kernel-resolved path
+		path = (char*) kpath; // cast to discard const qualifier
+		ret = get_abs_path(path, abs_path);
+	} else {
+		// we resolve the user-path
+		path = (char*) upath; // cast to discard const qualifier
+		ret = get_abs_path_user(dfd, upath, abs_path);
+	}
+
+
+	INFO("probing the open syscall for the path %s\n", path);
+	// The path could be a relative path. We decided to work only with absolute paths, so we need to obtain it.
+
+
 	int not_exists = 0;
 	// if we can't resolve the path, abs_path is filled with the error keyword
 	if (strcmp(abs_path, PATH_NOT_FOUND) == 0) {
@@ -318,7 +335,6 @@ int rm_open_pre_handler(struct kprobe *ri, struct pt_regs *regs) {
 // 	}
 // #ifdef DEBUG
 // 	// get the file descriptor
-// 	int dfd = (int)regs->di;
 // 	INFO("Intercepted open syscall at %s with flags %d and fd %d\n", path, flags, dfd);
 // #endif
 // 	if (not_exists == 0) {

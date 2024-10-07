@@ -107,9 +107,8 @@ int get_abs_path(const char *path, char *abs_path) {
 	}
 
 	struct path p;
-	// let the kernel resolves the path
+	char *tmp_path = NULL;
 	int ret = kern_path(path, LOOKUP_FOLLOW, &p);
-	// If we fail to resolve the path, even if it is absolute, it means that the path does not exist
 	if (ret) {
 		WARNING("Unable to resolve the path\n");
 		ret = -ENOENT;
@@ -119,34 +118,73 @@ int get_abs_path(const char *path, char *abs_path) {
 		}
 		return ret;
 	}
-	// We resolved the path, but it could be a symlink or a relative path, so:
+
+	tmp_path = kzalloc(PATH_MAX, GFP_KERNEL);
+	if (unlikely(tmp_path == NULL)) {
+		WARNING("Unable to allocate memory for the path\n");
+		ret = -ENOMEM;
+		goto out_path_put;
+	}
+
+	const char *resolved_path = d_path(&p, tmp_path, PATH_MAX);
+	if (IS_ERR(resolved_path)) {
+		ret = -ENOENT;
+		goto out_free;
+	}
+
+	ret = (int)strscpy(abs_path, resolved_path, PATH_MAX);
+	if (ret <= 0) {
+		WARNING("Unable to copy the resolved path\n");
+		ret = -ENOMEM;
+	}
+
+out_free:
+	kfree(tmp_path);
+out_path_put:
+	path_put(&p);
+	return ret;
+}
+
+int get_abs_path_user(const int dfd, const __user char *user_path, char *abs_path) {
+	if (unlikely(user_path == NULL)) {
+		WARNING("Path is NULL\n");
+		return -EINVAL;
+	}
+	struct path path_struct;
+	int ret = user_path_at(dfd, user_path, LOOKUP_FOLLOW, &path_struct);
+	if (ret) {
+		ret = -ENOENT;
+		WARNING("Unable to resolve the path\n");
+		if (strscpy(abs_path, PATH_NOT_FOUND, PATH_MAX) != strlen(PATH_NOT_FOUND)) {
+			WARNING("Unable to copy the path not found message\n");
+			ret = -ENOMEM;
+		}
+		return ret;
+	}
 	// Allocate temporary buffer to store the path
 	char *tmp_path = kzalloc(PATH_MAX, GFP_KERNEL);
 	if (unlikely(tmp_path == NULL)) {
 		WARNING("Unable to allocate memory for the path\n");
-		// release the path
-		path_put(&p);
-		return -ENOMEM;
+		ret = -ENOMEM;
+		goto out_path_put;
 	}
-	// Get the absolute path -- d_path lets us get the path from the root
-	const char *resolved_path = d_path(&p, tmp_path, PATH_MAX);
+	// Convert to a string
+	const char *resolved_path = d_path(&path_struct, tmp_path, PATH_MAX);
 	if (IS_ERR(resolved_path)) {
-		kfree(tmp_path);
-		path_put(&p); // Release the path on failure
-		return -ENOENT;
+		ret = -ENOENT;
+		goto out_free;
 	}
 	// Copy the resolved absolute path into the output buffer
 	ret = (int)strscpy(abs_path, resolved_path, PATH_MAX);
 	if (ret <= 0) {
 		WARNING("Unable to copy the resolved path\n");
-		kfree(tmp_path);
-		path_put(&p); // Release the path on failure
-		return -ENOMEM;
+		ret = -ENOMEM;
 	}
-	// Clean up
+out_free:
 	kfree(tmp_path);
-	path_put(&p); // Release the path
-	return 0;
+out_path_put:
+	path_put(&path_struct);
+	return ret;
 }
 
 bool is_dir(const char *path) {
