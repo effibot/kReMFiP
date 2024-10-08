@@ -256,7 +256,7 @@ int rm_open_pre_handler(struct kprobe *ri, struct pt_regs *regs) {
 #endif
 		return 0;
 	}
-
+	INFO("flag is open for writing\n");
 	// the do_filp_open is attempting to write on the file, check the hash table
 	const struct filename *fname = (struct filename *)regs->si;
 	if (unlikely(fname == NULL)) {
@@ -265,6 +265,7 @@ int rm_open_pre_handler(struct kprobe *ri, struct pt_regs *regs) {
 #endif
 		return -EINVAL;
 	}
+	INFO("got the filename\n");
 	char* path = NULL;
 	const __user char *upath = fname->uptr;
 	const char *kpath = fname->name;
@@ -274,6 +275,7 @@ int rm_open_pre_handler(struct kprobe *ri, struct pt_regs *regs) {
 #endif
 		return -EINVAL;
 	}
+	INFO("got kpath %s\n", kpath);
 	// Transform the path to an absolute path
 	char *abs_path = kzalloc(PATH_MAX, GFP_KERNEL);
 	if (unlikely(abs_path == NULL)) {
@@ -296,10 +298,12 @@ int rm_open_pre_handler(struct kprobe *ri, struct pt_regs *regs) {
 		// we discard the user-path and point to the kernel-resolved path
 		path = (char*) kpath; // cast to discard const qualifier
 		ret = get_abs_path(path, abs_path);
+		INFO("kpath %s\n", kpath);
 	} else {
 		// we resolve the user-path
 		path = (char*) upath; // cast to discard const qualifier
 		ret = get_abs_path_user(dfd, upath, abs_path);
+		INFO("upath %s\n", upath);
 	}
 
 
