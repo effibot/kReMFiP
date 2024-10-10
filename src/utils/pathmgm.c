@@ -13,9 +13,8 @@
 #include <linux/string.h>
 #include <linux/uaccess.h>
 // Define a vector of invalid system paths
-static const char *invalid_paths[INVALID_PATHS_NUM] = {
-	"/bin",	 "/boot", "/cdrom", "/dev",	 "/etc", "/lib",	  "/lib64", "/mnt", "/opt", "/proc",
-	"/root", "/run",  "/sbin",	"/snap", "/srv", "/swapfile", "/sys",	"/usr", "/var", "/tmp"
+static const char *invalid_paths[] = {
+	"/run", "/var", "/tmp", "/dev", "/proc", "/etc"
 };
 
 /**
@@ -41,7 +40,9 @@ bool path_exists(const char *path) {
 
 /**
  * @name is_valid_path
- * @brief Check if the path is valid.
+ * @brief Check if the given path is valid for the reference monitor.
+ * We assume that the path is an absolute path, so the system has already resolved it and check if
+ * it exists. This means that no control on the structure of the path is needed.
  * @param path - the path to be checked
  * @return true if the path is valid, false otherwise
  */
@@ -52,48 +53,10 @@ bool is_valid_path(const char *path) {
 #endif
 		return false;
 	}
-
-	const size_t len = strlen(path);
-
-	// Check for empty path, root directory, or paths like . or ..
-	if (len == 0 || strcmp(path, "/") == 0 || strcmp(path, ".") == 0 || strcmp(path, "..") == 0) {
-#ifdef DEBUG
-		WARNING("Invalid path: empty, root, or relative path\n");
-#endif
-		return false;
-	}
-
-	// Check for double slashes
-	if (strstr(path, "//") != NULL) {
-#ifdef DEBUG
-		WARNING("Double slashes in the path\n");
-#endif
-		return false;
-	}
-
-	// Check if the mount point or full path is in the list of invalid paths
+	// if the path belongs to some system mount point, return false
 	for (int i = 0; i < INVALID_PATHS_NUM; i++) {
-		if (strcmp(path, invalid_paths[i]) == 0) {
-#ifdef DEBUG
-			WARNING("Invalid path or mount point\n");
-#endif
-			return 0;
-		}
-	}
-	if (path[0] == '/') {
-		const char *first_slash = strchr(path + 1, '/');
-		if (first_slash) {
-			const size_t mnt_point_len = first_slash - path;
-			const char *mnt_point = kstrndup(path, mnt_point_len, GFP_KERNEL);
-			for (int i = 0; i < INVALID_PATHS_NUM; i++) {
-				if (strncmp(mnt_point, invalid_paths[i], mnt_point_len) == 0) {
-#ifdef DEBUG
-					WARNING("Invalid path or mount point\n");
-#endif
-					kfree(mnt_point);
-					return 0;
-				}
-			}
+		if (str_has_prefix(path, invalid_paths[i])) {
+			return false;
 		}
 	}
 
@@ -112,11 +75,7 @@ int get_abs_path(const char *path, char *abs_path) {
 	if (ret) {
 		WARNING("Unable to resolve the path\n");
 		ret = -ENOENT;
-		if (strscpy(abs_path, PATH_NOT_FOUND, PATH_MAX) != strlen(PATH_NOT_FOUND)) {
-			WARNING("Unable to copy the path not found message\n");
-			ret = -ENOMEM;
-		}
-		return ret;
+		goto not_found;
 	}
 
 	tmp_path = kzalloc(PATH_MAX, GFP_KERNEL);
@@ -142,6 +101,7 @@ out_free:
 	kfree(tmp_path);
 out_path_put:
 	path_put(&p);
+not_found:
 	return ret;
 }
 
@@ -153,17 +113,14 @@ int get_abs_path_user(const int dfd, const __user char *user_path, char *abs_pat
 	struct path path_struct;
 	int ret = user_path_at(dfd, user_path, LOOKUP_FOLLOW, &path_struct);
 	if (ret) {
+		strscpy(abs_path, PATH_NOT_FOUND, PATH_MAX);
 		ret = -ENOENT;
-		WARNING("Unable to resolve the path\n");
-		if (strscpy(abs_path, PATH_NOT_FOUND, PATH_MAX) != strlen(PATH_NOT_FOUND)) {
-			WARNING("Unable to copy the path not found message\n");
-			ret = -ENOMEM;
-		}
-		return ret;
+		goto not_found;
 	}
 	// Allocate temporary buffer to store the path
+	// heap allocation because PATH_MAX could be too large for the stack
 	char *tmp_path = kzalloc(PATH_MAX, GFP_KERNEL);
-	if (unlikely(tmp_path == NULL)) {
+	if (!tmp_path) {
 		WARNING("Unable to allocate memory for the path\n");
 		ret = -ENOMEM;
 		goto out_path_put;
@@ -172,6 +129,7 @@ int get_abs_path_user(const int dfd, const __user char *user_path, char *abs_pat
 	const char *resolved_path = d_path(&path_struct, tmp_path, PATH_MAX);
 	if (IS_ERR(resolved_path)) {
 		ret = -ENOENT;
+		strscpy(abs_path, PATH_NOT_FOUND, PATH_MAX);
 		goto out_free;
 	}
 	// Copy the resolved absolute path into the output buffer
@@ -184,6 +142,7 @@ out_free:
 	kfree(tmp_path);
 out_path_put:
 	path_put(&path_struct);
+not_found:
 	return ret;
 }
 

@@ -138,13 +138,13 @@ inline int rm_reconfigure(const path_op_t __user *op, const char __user *path) {
 	// This was previously done with path_exists but if we can't get an absolute path
 	// we assume that it doesn't exist
 	char *abs_path = kzalloc(PATH_MAX, GFP_KERNEL);
-	if (unlikely(get_abs_path(kpath, abs_path) != 0)) {
+	if (get_abs_path(kpath, abs_path) != 0) {
 		WARNING("The requested path does not exist\n");
 		ret = -ENOENT;
 		goto path_out;
 	}
 	// Check if the path is valid -> It must exist in the filesystem
-	if (unlikely(!is_valid_path(kpath))) {
+	if (!is_valid_path(abs_path)) {
 		WARNING("The requested path not valid for the monitor\n");
 		ret = -EINVAL;
 		goto path_out;
@@ -160,7 +160,7 @@ inline int rm_reconfigure(const path_op_t __user *op, const char __user *path) {
 		goto op_out;
 	}
 	// checks if the operation is valid
-	if (unlikely(!is_op_valid(*new_op))) {
+	if (!is_op_valid(*new_op)) {
 		WARNING("Invalid operation\n");
 		ret = -EINVAL;
 		goto op_out;

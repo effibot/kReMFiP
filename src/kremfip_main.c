@@ -54,6 +54,8 @@ rm_t *rm_p = NULL;
 
 // Retrieve the syscalls function pointers
 
+
+
 #ifdef TEST
 #define RD_THREAD 1
 #define WR_THREAD 2
@@ -221,7 +223,7 @@ static struct kprobe kp_open = {
 	.symbol_name = "do_filp_open",
 	.pre_handler = rm_open_pre_handler,
 };
-static struct kprobe kp_unlink = {
+/*static struct kprobe kp_unlink = {
 	.symbol_name =  "do_unlinkat",
 	.pre_handler = rm_unlink_pre_handler,
 };
@@ -234,7 +236,7 @@ static struct kprobe kp_mkdir = {
 static struct kprobe kp_rmdir = {
 	.symbol_name =  "do_rmdir",
 	.pre_handler = rm_rmdir_pre_handler,
-};
+};*/
 
 /* Required module's reference. */
 struct module *scth_mod = NULL;

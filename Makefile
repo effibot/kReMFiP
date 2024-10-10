@@ -59,12 +59,11 @@ clean:
 
 load:
 	@echo "$(MODNAME) Loading..."
-	cd $(SCTHDIR) && $(MAKE) load
-	sudo insmod $(MODNAME).ko
+	$(shell ./load.sh)
 
 unload:
 	@echo "$(MODNAME) Removing..."
-	cd $(SCTHDIR) && $(MAKE) unload
-	sudo rmmod $(MODNAME).ko
+	$(shell ./unload.sh)
+
 user:
 	@cd $(USERDIR) && $(MAKE) all

@@ -245,7 +245,7 @@ int rm_open_pre_handler(struct kprobe *ri, struct pt_regs *regs) {
 #ifdef DEBUG
 		WARNING("Invalid flags for the open syscall");
 #endif
-		return -EINVAL;
+		return 0;
 	}
 	// get the flags from the registers and check if they do not imply write permissions
 	const int flags = oflags->open_flag;
@@ -256,73 +256,84 @@ int rm_open_pre_handler(struct kprobe *ri, struct pt_regs *regs) {
 #endif
 		return 0;
 	}
-	INFO("flag is open for writing\n");
-	// the do_filp_open is attempting to write on the file, check the hash table
+
+	// the do_filp_open is attempting to write on some file, so we have to do the probing work
 	const struct filename *fname = (struct filename *)regs->si;
 	if (unlikely(fname == NULL)) {
 #ifdef DEBUG
 		WARNING("Invalid filename for the open syscall");
 #endif
-		return -EINVAL;
+		return 0;
 	}
-	INFO("got the filename\n");
-	char* path = NULL;
-	const __user char *upath = fname->uptr;
+
 	const char *kpath = fname->name;
-	if (unlikely(kpath == NULL)) {
+	const __user char *upath = fname->uptr;
+
+	if (!kpath && !upath && access_ok(upath, PATH_MAX)) {
 #ifdef DEGBUG
-		WARNING("Invalid path for the open syscall");
+		WARNING("Invalid or inaccessible path for the open syscall");
 #endif
-		return -EINVAL;
+		return 0;
 	}
-	INFO("got kpath %s\n", kpath);
+
+	/* Avoid to check for temporary files and other special cases
+	 * If the path exists, kpath is always filled with the resolved path,
+	 * so we can use it to avoid probing temporary files and other special cases.
+	 */
+	if(!is_valid_path(kpath)) {
+		// the path is not valid for our purposes, so we can allow the open syscall
+
+		INFO("skipping the check for the path %s\n", kpath);
+
+		return 0;
+	}
+	// get the file descriptor
+	const int dfd = (int)regs->di;
 	// Transform the path to an absolute path
 	char *abs_path = kzalloc(PATH_MAX, GFP_KERNEL);
 	if (unlikely(abs_path == NULL)) {
 		WARNING("Failed to allocate memory for the absolute path");
 		return -ENOMEM;
 	}
-	// Avoid to check for temporary and/or system files
-	if(!is_valid_path(kpath)) {
-		// the path is not valid for our purposes, so we can allow the open syscall
-#ifdef DEBUG
-		INFO("skipping the check for the path %s\n", kpath);
-#endif
+	int ret = get_abs_path_user(dfd, upath, abs_path);
+	pr_info("%d\n", ret);
+	if (ret <= 0) {
+		WARNING("Failed to get the absolute path of %s", kpath);
+		kfree(abs_path);
 		return 0;
 	}
-	// get the file descriptor
-	const int dfd = (int)regs->di;
-	// The user path could be null in special cases (like temporary files), so we have to check it
-	int ret = 0;
-	if(upath == NULL) {
-		// we discard the user-path and point to the kernel-resolved path
-		path = (char*) kpath; // cast to discard const qualifier
-		ret = get_abs_path(path, abs_path);
-		INFO("kpath %s\n", kpath);
-	} else {
-		// we resolve the user-path
-		path = (char*) upath; // cast to discard const qualifier
-		ret = get_abs_path_user(dfd, upath, abs_path);
-		INFO("upath %s\n", upath);
-	}
+
+	// The user path could be null in special cases (like temporary files), so we have to check it;
+	// if(upath == NULL) {
+	// 	// we discard the user-path and point to the kernel-resolved path
+	// 	path = (char*) kpath; // cast to discard const qualifier
+	// 	ret = get_abs_path(path, abs_path);
+	// 	INFO("kpath %s\n", kpath);
+	// } else {
+	// 	// we resolve the user-path
+	// 	path = (char*) upath; // cast to discard const qualifier
+	// 	ret = get_abs_path_user(dfd, upath, abs_path);
+	// 	INFO("upath %s\n", upath);
+	// }
 
 
-	INFO("probing the open syscall for the path %s\n", path);
+	INFO("probing the open syscall for the path %s\n", abs_path);
+	kfree(abs_path);
 	// The path could be a relative path. We decided to work only with absolute paths, so we need to obtain it.
 
 
-	int not_exists = 0;
+	//int not_exists = 0;
 	// if we can't resolve the path, abs_path is filled with the error keyword
-	if (strcmp(abs_path, PATH_NOT_FOUND) == 0) {
-		WARNING("Path %s not found\n", path);
-		// we flip the flag because we still should check if the file is being created
-		kfree(abs_path); // maybe just memset to 0?
-		// if the file is being created, the error is legit and we have to flip the flag
-		if (flags & (O_CREAT | __O_TMPFILE | O_EXCL)) {
-			not_exists = 1;
-		}
-	}
-	INFO("Found path: %s\n", abs_path);
+	// if (strcmp(abs_path, PATH_NOT_FOUND) == 0) {
+	// 	WARNING("Path %s not found\n", path);
+	// 	// we flip the flag because we still should check if the file is being created
+	// 	kfree(abs_path); // maybe just memset to 0?
+	// 	// if the file is being created, the error is legit, and we have to flip the flag
+	// 	if (flags & (O_CREAT | __O_TMPFILE | O_EXCL)) {
+	// 		not_exists = 1;
+	// 	}
+	// }
+	//INFO("Found path: %s\n", abs_path);
 // 	// if the path is not found and is not being created, exit
 	// if (ret <= 0 && not_exists == 0) {
 // 		WARNING("Failed to get the absolute path");

@@ -48,9 +48,9 @@ static int resolve_abs_path(int dfd, const __user char *user_path, char* store_b
 
     char tpath[PATH_MAX];  // Stack allocation for better performance
     error = user_path_at(dfd, user_path, lookup_flags, &path);
-    if (error)
+    if (error){
         return error;
-
+    }
     char *ret_ptr = d_path(&path, tpath, sizeof(tpath));
     if (IS_ERR(ret_ptr))
         return PTR_ERR(ret_ptr);
@@ -108,6 +108,11 @@ static int __init kprobe_init(void) {
 // Module cleanup
 static void __exit kprobe_exit(void) {
     unregister_kprobe(&kp);
+    const __user char *user_path = "/home/effi/Desktop/open_probes/open_probes.c";
+    char abs_path[PATH_MAX];  // Stack buffer
+    int ret = resolve_abs_path(AT_FDCWD, user_path, abs_path);
+    printk(KERN_INFO "Resolved path: %s\n", abs_path);
+    printk(KERN_INFO "err: %d\n", ret);
     printk(KERN_INFO "Kprobe unregistered\n");
 }
 
