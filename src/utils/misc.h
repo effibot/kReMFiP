@@ -54,10 +54,11 @@ inline unsigned int rnd_id(void);
  * This function converts a hex string to a byte array.
  * @param hex the hex string
  * @param len the length of the hex string
+ * @param buf the buffer where the byte array will be stored
  * @return The byte array
  */
 
-inline char *hex_to_str(const unsigned char *hex, size_t len);
+inline int hex_to_str(const unsigned char *hex, size_t len, char *buf);
 /**
  * @brief Map user space buffer to kernel space.
  * Just a wrapper around the copy_from_user function to don't repeat the same code.

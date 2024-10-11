@@ -9,7 +9,12 @@
 #include <unistd.h>
 #include "../../scth/headers/scth_lib.h"
 
-#define __NR_state_get 134
+enum __NR_sys_idx {
+	__state_get = 0,
+	__state_set,
+	__reconfigure,
+	__pwd_check
+};
 
 /**
 * @brief Ask the user for the password
@@ -41,8 +46,8 @@ out:
  */
 inline int state_get(state_t *u_state) {
 	errno = 0;
-	//int __NR_state_get = get_sys_idx(SCTH_HSYSNIS)[0];
-	printf("%d\n", __NR_state_get);
+	int __NR_state_get = get_sys_idx(SCTH_HSYSNIS, __state_get);
+	//printf("%d\n", __NR_state_get);
 	return syscall(__NR_state_get, u_state);
 }
 
@@ -62,7 +67,7 @@ inline int state_set(state_t *state) {
 	if(pwd_check() < 0)
 		return -1;
 	// all clear, we can set the state
-	int __NR_state_set = get_sys_idx(SCTH_HSYSNIS)[1];
+	int __NR_state_set = get_sys_idx(SCTH_HSYSNIS, __state_set);
 	printf("%d\n", __NR_state_set);
 	return syscall(__NR_state_set, state);
 }
@@ -91,7 +96,7 @@ inline int reconfigure(const path_op_t *op, const char *path) {
 	if(pwd_check() < 0)
 		return -1;
 	// all clear, we can reconfigure
-	int __NR_reconfigure = get_sys_idx(SCTH_HSYSNIS)[2];
+	int __NR_reconfigure = get_sys_idx(SCTH_HSYSNIS, __reconfigure);
 	return syscall(__NR_reconfigure, op, path);
 }
 
@@ -106,7 +111,7 @@ inline int pwd_check(void) {
     if (pwd == NULL){
         return -1;
 	}
-	int __NR_pwd_check = get_sys_idx(SCTH_HSYSNIS)[3];
+	int __NR_pwd_check = get_sys_idx(SCTH_HSYSNIS, __pwd_check);
 	printf("%d\n", __NR_pwd_check);
     return syscall(__NR_pwd_check, pwd);
 }

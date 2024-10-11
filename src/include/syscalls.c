@@ -175,7 +175,7 @@ inline int rm_reconfigure(const path_op_t __user *op, const char __user *path) {
 		ret = ht_insert_node(rm_p->ht, node_init(abs_path));
 		break;
 	case UNPROTECT_PATH:
-		ret = ht_delete_node(rm_p->ht, node_init(abs_path));
+		ret = ht_delete_node(rm_p->ht, compute_hash(abs_path) );
 		break;
 	}
 	if (ret == -EINVAL) {

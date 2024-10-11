@@ -94,11 +94,7 @@ node_t *ht_lookup(ht_t *ht, const uint64_t key) {
 	// find the bucket where the data should be
 	const size_t bkt = __ht_index(key);
 	// define the loop cursor
-	node_t *tmp_node = kzalloc(sizeof(*tmp_node), GFP_KERNEL);
-	if(tmp_node == NULL) {
-		WARNING("Failed to allocate memory for the node\n");
-		goto not_found;
-	}
+	node_t *tmp_node;
 	/*[RCU] - Read Critical Section
      * we need to iterate over the linked list at the given index
      * in the hash table so we need to lock the hash table
@@ -167,6 +163,7 @@ static void __node_reclaim_callback(struct rcu_head *rcu) {
 #ifdef DEBUG
 	INFO("Callback free for node with key %llu. Preempt count: %d\n", node->key, preempt_count());
 #endif
+	kfree(node->path);
 	kfree(node);
 }
 
@@ -187,16 +184,8 @@ int ht_destroy(ht_t *ht) {
 	for (size_t i = 0; i < HT_SIZE; i++) {
 		node_t *tmp_head = rcu_dereference_protected(ht->table[i], lockdep_is_held(&ht->lock[i]));
 		// free the memory allocated for the elements in the list
-		node_t *tmp_node = kzalloc(sizeof(tmp_node), GFP_KERNEL);
-		if(tmp_node == NULL) {
-			WARNING("Failed to allocate memory for the node\n");
-			return -ENOMEM;
-		}
-		node_t *tmp_next = kzalloc(sizeof(tmp_next), GFP_KERNEL);
-		if(tmp_next == NULL) {
-			WARNING("Failed to allocate memory for the node\n");
-			return -ENOMEM;
-		}
+		node_t *tmp_node;
+		node_t *tmp_next;
 		list_for_each_entry_safe(tmp_node, tmp_next, &tmp_head->list, list) {
 			list_del_rcu(&tmp_node->list);
 			call_rcu(&tmp_node->rcu, __node_reclaim_callback);
@@ -219,20 +208,20 @@ int ht_destroy(ht_t *ht) {
  * @name ht_delete_node
  * @brief Delete the data from the hash table.
  * @param ht - the hash table where the data will be deleted
- * @param node - the data to be deleted
+ * @param key - the key of the data to be deleted
  * @return
  */
-int ht_delete_node(ht_t *ht, node_t *node) {
-	if (unlikely(ht == NULL) || node == NULL) {
+int ht_delete_node(ht_t *ht, const uint64_t key) {
+	if (unlikely(ht == NULL)) {
 #ifdef DEBUG
-		WARNING("Passing null table (%p) or null data (%p)\n", ht, node);
+		WARNING("Passing null table (%p)\n", ht);
 #endif
 		return -EINVAL;
 	}
 	// lock the whole table to be sure that the data is not deleted while we are looking for it
 	HT_LOCK_TABLE(ht);
 	// check if the data is in the hash table
-	node_t *removed = ht_lookup(ht, node->key);
+	node_t *removed = ht_lookup(ht, key);
 	if (removed == NULL) {
 		// someone else deleted the data
 		INFO("Data not found in the hash table\n");
@@ -260,11 +249,7 @@ size_t __ht_count_list(node_t *list) {
 	}
 	// initialize the counter
 	size_t count = 0;
-	struct list_head *node = kzalloc(sizeof(node), GFP_KERNEL);
-	if (unlikely(node == NULL)) {
-		WARNING("Failed to allocate memory for the node\n");
-		return -ENOMEM;
-	}
+	struct list_head *node;
 	// iterate over the list
 	list_for_each_rcu(node, &list->list) {
 		count++;
@@ -363,11 +348,7 @@ void __ht_print_list(node_t *list) {
 		return;
 	}
 	// print the elements in the list at the given index
-	node_t *tmp_head = kzalloc(sizeof(*tmp_head), GFP_KERNEL);
-	if (unlikely(tmp_head == NULL)) {
-		WARNING("Failed to allocate memory for the node\n");
-		return;
-	}
+	node_t *tmp_head;
 	list_for_each_entry_rcu(tmp_head, &list->list, list) {
 		// print [key::path]-> for each element in the list
 		printk(KERN_CONT "[%llu::%s]-->", tmp_head->key, tmp_head->path);
@@ -441,7 +422,7 @@ node_t *node_init(const char *path) {
 		return NULL;
 	}
 	// copy the path
-	const int ret = (int)strscpy(node->path, path, strlen(path) + 1);
+	const int ret = (int)strscpy(node->path, path, strlen(path));
 	if (ret != strlen(path)) {
 		INFO("Failed to copy the path\n");
 		kfree(node->path);

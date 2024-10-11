@@ -10,7 +10,6 @@ void **scth_finder(void);
 void scth_cleanup(void);
 int scth_hack(void *new_call_addr);
 void scth_unhack(int to_restore);
-int scth_get_sysnis(int *sysnis);
 
 #else
 
@@ -30,9 +29,10 @@ int scth_get_sysnis(int *sysnis);
  * @param sys_file the file that contains the indexes of the system calls. This can be one of the following:
  * - /sys/module/scth/sysnis: if you want to get the indexes of the available system calls.
  * - /sys/module/scth/hsysnis: if you want to get the indexes of the hijacked system calls.
+ * @param hidx the index of the system call to retrieve.
  * @return an array of integers containing the indexes of the system calls.
  */
-static inline int* get_sys_idx(const char* sys_file) {
+static inline int get_sys_idx(const char* sys_file, int hidx) {
 	/* If the module is loaded there is a file inside the /sys/module/scth directory
 	 * called sysnis. This file contains the syscall numbers of the system calls
 	 * that were hijacked by the module.*/
@@ -69,7 +69,14 @@ static inline int* get_sys_idx(const char* sys_file) {
 	}
 	free(token);
 	free(buf);
-	return sysnis_arr;
+	// assert that the index is within the bounds.
+	if (hidx < 0 || hidx >= avail_idx) {
+		fprintf(stderr, "Index of hijacked syscall out of bounds\n");
+		return -1;
+	}
+	int ret_hidx = sysnis_arr[hidx];
+	free(sysnis_arr);
+	return ret_hidx;
 }
 
 

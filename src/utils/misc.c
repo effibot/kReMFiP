@@ -80,23 +80,29 @@ inline unsigned int rnd_id(void) {
  *
  * @param hex The byte array to convert.
  * @param len The length of the byte array.
+ * @param buf The buffer to store the hex string.
  * @return A hex string representation of the byte array.
  */
-inline char *hex_to_str(const unsigned char *hex, const size_t len) {
+inline int hex_to_str(const unsigned char *hex, const size_t len, char* buf) {
 	// be sure the hex string is not empty
-	if (strlen((char *)hex) == 0 || len == 0 || hex == NULL) {
-		return NULL;
+	if (strlen((char *)hex) == 0 || len == 0 || hex == NULL || buf == NULL) {
+		return -EINVAL;
 	}
 	// allocate the string -- 2 hex characters for each byte
 	char *str = kzalloc(len * 2 + 1, GFP_KERNEL);
-	if (str == NULL) {
-		return NULL;
+	if (IS_ERR(str)) {
+		return -ENOMEM;
 	}
 	for (size_t i = 0; i < len; i++) {
 		sprintf(&str[i * 2], "%02x", hex[i]);
 	}
 	str[len * 2] = '\0'; // null terminate the string
-	return str;
+	if(strscpy(buf, str, len * 2 + 1) < 0) {
+		kfree(str);
+		return -EINVAL;
+	}
+	kfree(str);
+	return 0;
 }
 
 /**
@@ -269,7 +275,17 @@ inline bool verify_pwd(const char *input_str) {
 		goto stored_out;
 	}
 	// Compare the hashes
-	cmp = memcmp(hex_to_str(input_hash, RM_PWD_HASH_LEN), stored_hash, RM_PWD_HASH_LEN) == 0;
+	char *input_hash_str = kzalloc((RM_PWD_HASH_LEN * 2 + 1)*sizeof(char), GFP_KERNEL);
+	if(IS_ERR_OR_NULL(input_hash_str)) {
+		WARNING("Failed to allocate memory for the input hash string");
+		goto stored_out;
+	}
+	if(hex_to_str(input_hash, RM_PWD_HASH_LEN, input_hash_str)) {
+		WARNING("Failed to convert the input hash to string");
+		kfree(input_hash_str);
+		goto stored_out;
+	}
+	cmp = memcmp(input_hash_str, stored_hash, RM_PWD_HASH_LEN) == 0;
 #ifdef DEBUG
 	INFO("Hashes compared successfully");
 #endif

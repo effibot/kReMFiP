@@ -73,27 +73,13 @@ static int __init scth_init(void) {
 		printk(KERN_ERR "Error creating the sysnis attribute\n");
 		return -EFAULT;
 	}
-	// Prepare the buffer to return, at least we have nr_sysnis entries
-	int *sysnis = kzalloc(nr_sysnis * sizeof(int), GFP_KERNEL);
-	if (sysnis == NULL) {
-		printk(KERN_ERR "%s: Failed to allocate memory for the array.\n", MODNAME);
-		return -ENOMEM;
-	}
+
 	// Get the indexes of the unused system calls
-	const int avail_num = scth_get_sysnis(sysnis);
-	if (avail_num < 0) {
-		printk(KERN_ERR "Error getting the sysnis\n");
-		return -EFAULT;
-	}
-	// Log some messages
-	if(avail_num == 0) {
-		printk(KERN_INFO "No system calls are available\n");
-		return 0;
-	}
-	printk(KERN_INFO "%s: Ready, %d available entries.\n", MODNAME, nr_sysnis);
+	printk(KERN_INFO "%s: Ready, found %d entries.\n", MODNAME, nr_sysnis);
 	printk(KERN_CONT "The corresponding indexes are:\n");
-	for (int i = 0; i < avail_num ; i++) {
-		printk(KERN_CONT "%d ", sysnis[i]);
+	for (int i = 0; i < nr_sysnis ; i++) {
+		if(!avail_sysnis[i].hacked)
+			printk(KERN_CONT "%d ", avail_sysnis[i].tab_index);
 	}
 	printk(KERN_CONT "\n");
 	printk(KERN_INFO "The system call table is exposed\n");
@@ -104,10 +90,11 @@ module_init(scth_init);
 
 /* Module cleanup routine. */
 static void __exit scth_exit(void) {
-	scth_cleanup();
+	printk(KERN_INFO "%s: Shutdown...\n", MODNAME);
 	sysfs_remove_file(&THIS_MODULE->mkobj.kobj, &sysnis_attr.attr);
 	sysfs_remove_file(&THIS_MODULE->mkobj.kobj, &hsysnis_attr.attr);
-	printk(KERN_INFO "%s: Shutdown...\n", MODNAME);
+	scth_cleanup();
+	printk(KERN_INFO "The system call table is no longer exposed\n");
 }
 
 module_exit(scth_exit);

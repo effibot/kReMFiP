@@ -88,7 +88,7 @@ node_t *ht_lookup(ht_t *ht, uint64_t key);
 // Insert a node in the hash table
 int ht_insert_node(ht_t *ht, node_t *node);
 // Delete a node from the hash table
-int ht_delete_node(ht_t *ht, node_t *node);
+int ht_delete_node(ht_t *ht, uint64_t key);
 // Count the number of elements in the hash table
 size_t *ht_count(ht_t *ht);
 // Count the number of elements in the hash table at a specific index

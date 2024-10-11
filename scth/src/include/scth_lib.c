@@ -301,35 +301,3 @@ void **scth_finder(void) {
 	return NULL;
 }
 EXPORT_SYMBOL(scth_finder);
-
-
-/**
- * @brief Returns the array of known indexes pointing to "ni_syscall".
- * Since this is a kernel-space interface, we just build the array and return it.
- * @return The number of indexes or an error code.
- */
-int scth_get_sysnis(int *sysnis) {
-	// Be sure that the module is loaded and the array is populated.
-	if (avail_sysnis == NULL || sysnis == NULL)
-		return -EFAULT;
-	// Just to be sure, grab the lock
-	mutex_lock(&scth_lock);
-	// Count the number of hacked entries.
-	int size = 0;
-	for (int i = 0; i < nr_sysnis; i++)
-		if (!avail_sysnis[i].hacked)
-			size++;
-	// Fill the array with the indexes of the hacked entries.
-	for (int i = 0, k = 0; i < nr_sysnis && k < size; i++, k++)
-		if (!avail_sysnis[i].hacked)
-			sysnis[k] = avail_sysnis[i].tab_index;
-	// Release the lock and return the number of indexes.
-	sysnis = krealloc(sysnis, size * sizeof(int), GFP_KERNEL);
-	if(sysnis == NULL) {
-		mutex_unlock(&scth_lock);
-		return -ENOMEM;
-	}
-	mutex_unlock(&scth_lock);
-	return size;
-}
-EXPORT_SYMBOL(scth_get_sysnis);

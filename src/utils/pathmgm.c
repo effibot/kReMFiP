@@ -55,7 +55,7 @@ bool is_valid_path(const char *path) {
 	}
 	// if the path belongs to some system mount point, return false
 	for (int i = 0; i < INVALID_PATHS_NUM; i++) {
-		if (str_has_prefix(path, invalid_paths[i])) {
+		if (str_has_prefix(path, invalid_paths[i]) > 0) {
 			return false;
 		}
 	}
@@ -70,7 +70,7 @@ int get_abs_path(const char *path, char *abs_path) {
 	}
 
 	struct path p;
-	char *tmp_path = NULL;
+	char *tmp_path;
 	int ret = kern_path(path, LOOKUP_FOLLOW, &p);
 	if (ret) {
 		WARNING("Unable to resolve the path\n");
@@ -98,9 +98,9 @@ int get_abs_path(const char *path, char *abs_path) {
 	}
 
 out_free:
-	kfree(tmp_path);
+	//kfree(tmp_path);
 out_path_put:
-	path_put(&p);
+	//path_put(&p);
 not_found:
 	return ret;
 }
@@ -113,8 +113,7 @@ int get_abs_path_user(const int dfd, const __user char *user_path, char *abs_pat
 	struct path path_struct;
 	int ret = user_path_at(dfd, user_path, LOOKUP_FOLLOW, &path_struct);
 	if (ret) {
-		strscpy(abs_path, PATH_NOT_FOUND, PATH_MAX);
-		ret = -ENOENT;
+		//ret = -ENOENT;
 		goto not_found;
 	}
 	// Allocate temporary buffer to store the path
@@ -129,7 +128,6 @@ int get_abs_path_user(const int dfd, const __user char *user_path, char *abs_pat
 	const char *resolved_path = d_path(&path_struct, tmp_path, PATH_MAX);
 	if (IS_ERR(resolved_path)) {
 		ret = -ENOENT;
-		strscpy(abs_path, PATH_NOT_FOUND, PATH_MAX);
 		goto out_free;
 	}
 	// Copy the resolved absolute path into the output buffer
@@ -141,7 +139,7 @@ int get_abs_path_user(const int dfd, const __user char *user_path, char *abs_pat
 out_free:
 	kfree(tmp_path);
 out_path_put:
-	path_put(&path_struct);
+	//path_put(&path_struct);
 not_found:
 	return ret;
 }

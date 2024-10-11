@@ -71,7 +71,7 @@ rm_t *rm_init(void) {
 		return NULL;
 	}
 	// Set the default values
-	rm->name = RM_DEFAULT_NAME;
+	//rm->name = RM_DEFAULT_NAME;
 	rm->state = RM_INIT_STATE;
 	rm->id = rnd_id();
 	// Initialize the hash table and be sure that all goes well
@@ -177,7 +177,7 @@ void rm_free(const rm_t *rm) {
 	// free the hash table
 	ht_destroy(rm->ht);
 	// remove the sysfs file
-	sysfs_remove_file(rm->kobj, &hash_pwd_attr.attr);
+	//sysfs_remove_file(rm->kobj, &hash_pwd_attr.attr);
 	kobject_put(rm->kobj);
 	// free the reference monitor
 	kfree(rm);
@@ -226,7 +226,16 @@ f:
  */
 static inline ssize_t pwd_hash_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf) {
 	// just copy the password hash to the buffer as a null-terminated string
-	return snprintf(buf, RM_PWD_HASH_LEN * 2 + 1, "%s", hex_to_str(rm_pwd_hash, RM_PWD_HASH_LEN));
+	char *str = kzalloc((RM_PWD_HASH_LEN * 2 + 1)*sizeof(char), GFP_KERNEL);
+	ssize_t error = hex_to_str(rm_pwd_hash, RM_PWD_HASH_LEN, str);
+	if (error) {
+		WARNING("Failed to convert the password hash to a string");
+		kfree(str);
+		return error;
+	}
+	ssize_t byte_written = snprintf(buf, RM_PWD_HASH_LEN * 2 + 1, "%s", str);
+	kfree(str);
+	return byte_written;
 }
 
 int rm_open_pre_handler(struct kprobe *ri, struct pt_regs *regs) {
@@ -269,7 +278,7 @@ int rm_open_pre_handler(struct kprobe *ri, struct pt_regs *regs) {
 	const char *kpath = fname->name;
 	const __user char *upath = fname->uptr;
 
-	if (!kpath && !upath && access_ok(upath, PATH_MAX)) {
+	if (!kpath) {
 #ifdef DEGBUG
 		WARNING("Invalid or inaccessible path for the open syscall");
 #endif
@@ -282,26 +291,40 @@ int rm_open_pre_handler(struct kprobe *ri, struct pt_regs *regs) {
 	 */
 	if(!is_valid_path(kpath)) {
 		// the path is not valid for our purposes, so we can allow the open syscall
-
+#ifdef DEBUG
 		INFO("skipping the check for the path %s\n", kpath);
-
+#endif
 		return 0;
 	}
+	INFO("opening valid res %s\n", kpath);
 	// get the file descriptor
 	const int dfd = (int)regs->di;
 	// Transform the path to an absolute path
-	char *abs_path = kzalloc(PATH_MAX, GFP_KERNEL);
-	if (unlikely(abs_path == NULL)) {
-		WARNING("Failed to allocate memory for the absolute path");
-		return -ENOMEM;
+	char * abs_path = NULL;
+	int not_exists = 0, upath_null =0;
+	if(upath == NULL) {
+		abs_path = (char*)kpath;
+		upath_null =1;
+	} else {
+		abs_path = kzalloc(PATH_MAX, GFP_KERNEL);
+		if (unlikely(abs_path == NULL)) {
+			WARNING("Failed to allocate memory for the absolute path");
+			return 0;
+		}
+		int ret = get_abs_path_user(dfd, upath, abs_path);
+		if (ret <= 0) {
+			WARNING("Failed to get the absolute path");
+			abs_path = (char*)kpath;
+			not_exists = 1;
+		}
 	}
-	int ret = get_abs_path_user(dfd, upath, abs_path);
-	pr_info("%d\n", ret);
-	if (ret <= 0) {
-		WARNING("Failed to get the absolute path of %s", kpath);
+	INFO("called on %s\nprobing on %s\nexistance %d", kpath, abs_path, not_exists);
+	if(upath_null)
 		kfree(abs_path);
-		return 0;
-	}
+
+
+
+
 
 	// The user path could be null in special cases (like temporary files), so we have to check it;
 	// if(upath == NULL) {
@@ -317,8 +340,6 @@ int rm_open_pre_handler(struct kprobe *ri, struct pt_regs *regs) {
 	// }
 
 
-	INFO("probing the open syscall for the path %s\n", abs_path);
-	kfree(abs_path);
 	// The path could be a relative path. We decided to work only with absolute paths, so we need to obtain it.
 
 
