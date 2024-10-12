@@ -14,6 +14,7 @@
 #include "../src/include/kremfip.h"
 #include "../src/utils/misc.h"
 #include "../scth/headers/scth_lib.h"
+
 // To get state:
 /**
 * state_t *state;
@@ -48,26 +49,48 @@ int main(int argc, char *argv[]) {
 	}
 	//int ret;
 	//// be sure that the monitor is reconfigurable
-	//state_t new_state = REC_ON;
-	//ret = state_set(&new_state);
-	//if (ret < 0) {
-	//	printf("Error: %s\n", strerror(errno));
-	//	return -1;
-	//}
-	//printf("State set\n");
-//	char *path = "/home/effivm/file0.txt";
-//	char *invalid_path = "/home/effivm/file_i.txt";
-//	path_op_t op = PROTECT_PATH;
-//	ret = reconfigure(&op, path);
-//	if (ret < 0) {
-//		printf("Error: %s\n", strerror(errno));
+	state_t new_state = REC_ON;
+	ret = state_set(&new_state);
+	if (ret < 0) {
+		printf("Error: %s\n", strerror(errno));
+		return -1;
+	}
+	// get state again
+	state_get(state);
+	printf("State set to %d\n",*state);
+	// reconfigure
+	char *path = calloc(1024, sizeof(char));
+	printf("Enter the path to reconfigure: ");
+	scanf("%s", path);
+	path_op_t op = PROTECT_PATH;
+	ret = reconfigure(&op, path);
+	if (ret < 0) {
+		printf("Error: %s\n", strerror(errno));
 //		return -1;
+	}
+	printf("Reconfigured for path %s\n", path);
+	free(state);
+//	// try to open the file with rd only and wr perm
+//	FILE* f = fopen(path, "r");
+//	if (!f) {
+//		printf("error: %s\n", strerror(errno));
+//		exit(1);
 //	}
-//	printf("Reconfigured for path %s\n", path);
-//	ret = reconfigure(&op, invalid_path);
-//	if (ret < 0) {
-//		printf("Error: %s\n", strerror(errno));
+//	char content[1024];
+//	while(fgets(content, 1024, f) != NULL){
+//		printf("Content: %s\n", content);
 //	}
-//	printf("end\n");
+//	// close
+//	fclose(f);
+//	// now try to write
+//	f = fopen(path, "r+");
+//	if (!f) {
+//		printf("error: %s\n", strerror(errno));
+//		exit(1);
+//	}
+//	char* test = "test";
+//	int num_byte =fwrite(test, strlen(test), 1, f);
+//	if(num_byte <0)
+//		exit(1);
 	return 0;
 }

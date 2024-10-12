@@ -226,7 +226,7 @@ f:
  */
 static inline ssize_t pwd_hash_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf) {
 	// just copy the password hash to the buffer as a null-terminated string
-	char *str = kzalloc((RM_PWD_HASH_LEN * 2 + 1)*sizeof(char), GFP_KERNEL);
+	char *str = kzalloc((RM_PWD_HASH_LEN * 2 + 1) * sizeof(char), GFP_KERNEL);
 	ssize_t error = hex_to_str(rm_pwd_hash, RM_PWD_HASH_LEN, str);
 	if (error) {
 		WARNING("Failed to convert the password hash to a string");
@@ -254,10 +254,11 @@ int rm_open_pre_handler(struct kprobe *ri, struct pt_regs *regs) {
 #ifdef DEBUG
 		WARNING("Invalid flags for the open syscall");
 #endif
-		return 0;
+		return -EINVAL;
 	}
 	// get the flags from the registers and check if they do not imply write permissions
-	const int flags = oflags->open_flag;
+	int flags = oflags->open_flag;
+	const unsigned short mode = oflags->mode;
 	if (!(flags & O_RDWR) && !(flags & O_WRONLY) && !(flags & (O_CREAT | __O_TMPFILE | O_EXCL))) {
 		// the open syscall is not attempting to write on the file, so we can allow it
 #ifdef DEBUG
@@ -272,7 +273,7 @@ int rm_open_pre_handler(struct kprobe *ri, struct pt_regs *regs) {
 #ifdef DEBUG
 		WARNING("Invalid filename for the open syscall");
 #endif
-		return 0;
+		return -EINVAL;
 	}
 
 	const char *kpath = fname->name;
@@ -289,162 +290,98 @@ int rm_open_pre_handler(struct kprobe *ri, struct pt_regs *regs) {
 	 * If the path exists, kpath is always filled with the resolved path,
 	 * so we can use it to avoid probing temporary files and other special cases.
 	 */
-	if(!is_valid_path(kpath)) {
+	if (!is_valid_path(kpath)) {
 		// the path is not valid for our purposes, so we can allow the open syscall
 #ifdef DEBUG
 		INFO("skipping the check for the path %s\n", kpath);
 #endif
 		return 0;
 	}
-	INFO("opening valid res %s\n", kpath);
+	// INFO("opening valid res %s\n", kpath);
 	// get the file descriptor
 	const int dfd = (int)regs->di;
 	// Transform the path to an absolute path
-	char * abs_path = NULL;
-	int not_exists = 0, upath_null =0;
-	if(upath == NULL) {
-		abs_path = (char*)kpath;
-		upath_null =1;
+	char *abs_path = NULL;
+	int ret = 0, not_exists = 0;
+
+	// The user path could be null in special cases (like temporary files), so we have to check it;
+	if (upath == NULL) {
+		abs_path = kstrdup(kpath, GFP_KERNEL);
 	} else {
 		abs_path = kzalloc(PATH_MAX, GFP_KERNEL);
 		if (unlikely(abs_path == NULL)) {
 			WARNING("Failed to allocate memory for the absolute path");
-			return 0;
+			return -ENOMEM;
 		}
-		int ret = get_abs_path_user(dfd, upath, abs_path);
+		ret = get_abs_path_user(dfd, upath, abs_path);
 		if (ret <= 0) {
-			WARNING("Failed to get the absolute path");
-			abs_path = (char*)kpath;
+			kfree(abs_path);
+			// fallback to kernel path
+			abs_path = kstrdup(kpath, GFP_KERNEL);
 			not_exists = 1;
 		}
 	}
-	INFO("called on %s\nprobing on %s\nexistance %d", kpath, abs_path, not_exists);
-	if(upath_null)
-		kfree(abs_path);
+	//INFO("called on %s\nprobing on %s\nexistance %d", kpath, abs_path, not_exists);
 
+	// We can fall into 2 cases now:
+	// 1. The path was found -> we check the path
+	// 2. The path wasn't found because is being created -> we check the parent directory
+#ifdef DEBUG
+	INFO("Intercepted open syscall at %s with flags %d and fd %d\n", abs_path, flags, dfd);
+#endif
+	if (not_exists == 0) {
+		// Case 1
+		if (is_protected(abs_path)) {
+#ifdef DEBUG
+			INFO("Rejecting open on protected file %s", abs_path)
+#endif
+			kfree(abs_path);
+			goto reject;
+		}
+	}
 
+	if ((!(flags & O_CREAT) || mode) && not_exists) {
+		// case 2
+		char *parent_dir = kzalloc(PATH_MAX, GFP_KERNEL);
+		if (unlikely(parent_dir == NULL)) {
+			WARNING("Unable to allocate memory for the parent_dir path");
+			kfree(abs_path);
+			return -ENOMEM;
+		}
+		ret = find_dir(abs_path, parent_dir);
+		INFO("parent dir: %s\n", parent_dir);
+		if (ret < 0 || !is_dir(parent_dir)) {
+			//"Unable to get parent directory, fallback to cwd";
+			kfree(parent_dir);
+			parent_dir = get_cwd();
+			// check
+			if (is_protected(parent_dir)) {
+#ifdef DEBUG
+				INFO("Rejecting open on protected directory %s", parent_dir);
+#endif
+				kfree(parent_dir);
+				goto reject;
+			}
+		}
+	}
+	// not rejected, return
+	return 0;
 
-
-
-	// The user path could be null in special cases (like temporary files), so we have to check it;
-	// if(upath == NULL) {
-	// 	// we discard the user-path and point to the kernel-resolved path
-	// 	path = (char*) kpath; // cast to discard const qualifier
-	// 	ret = get_abs_path(path, abs_path);
-	// 	INFO("kpath %s\n", kpath);
-	// } else {
-	// 	// we resolve the user-path
-	// 	path = (char*) upath; // cast to discard const qualifier
-	// 	ret = get_abs_path_user(dfd, upath, abs_path);
-	// 	INFO("upath %s\n", upath);
-	// }
-
-
-	// The path could be a relative path. We decided to work only with absolute paths, so we need to obtain it.
-
-
-	//int not_exists = 0;
-	// if we can't resolve the path, abs_path is filled with the error keyword
-	// if (strcmp(abs_path, PATH_NOT_FOUND) == 0) {
-	// 	WARNING("Path %s not found\n", path);
-	// 	// we flip the flag because we still should check if the file is being created
-	// 	kfree(abs_path); // maybe just memset to 0?
-	// 	// if the file is being created, the error is legit, and we have to flip the flag
-	// 	if (flags & (O_CREAT | __O_TMPFILE | O_EXCL)) {
-	// 		not_exists = 1;
-	// 	}
-	// }
-	//INFO("Found path: %s\n", abs_path);
-// 	// if the path is not found and is not being created, exit
-	// if (ret <= 0 && not_exists == 0) {
-// 		WARNING("Failed to get the absolute path");
-// 		return ret;
-// 	}
-// 	// We can fall into 2 cases now:
-// 	// 1. The path is found
-// 	// 2. The path is not found and is being created
-// 	char *path_to_check = kzalloc(PATH_MAX, GFP_KERNEL);
-// 	if (unlikely(path_to_check == NULL)) {
-// 		WARNING("Failed to allocate memory for the path to check");
-// 		kfree(abs_path);
-// 		return -ENOMEM;
-// 	}
-// #ifdef DEBUG
-// 	// get the file descriptor
-// 	INFO("Intercepted open syscall at %s with flags %d and fd %d\n", path, flags, dfd);
-// #endif
-// 	if (not_exists == 0) {
-// 		// Case 1
-// 		path_to_check = kstrdup(abs_path, GFP_KERNEL);
-// 	} else {
-// 		// Case 2
-// 		/* We have to create the file, but to do so we need to check if the directory is protected.
-// 		 * We need to do two things:
-// 		 * 1. Check if we have to create the file in the current directory.
-// 		 *		If so, we have to check if the directory is protected.
-// 		 * 2. Check if we have to create the file in an external directory. Since the open syscall
-// 		 *		could be used to make a recursive creation like in mkdir -p, we need to check if
-// 		 *		the least common ancestor is protected. We can do this by checking the path up to
-// 		 *		the last slash, iteratively, until we reach an existing directory.
-// 		 *		If the existing directory is protected, we have to reject the call.
-// 		 *
-// 		 *	The easier case to match is when the path is absolute, so we can check if the first
-// 		 *	character of the string is a '/'. Otherwise, the path is relative.
-// 		 */
-//
-// 		if (strncmp(path, "/", 1) == 0) {
-// 			// get the pointer to the last slash
-// 			do {
-// 				const char *last_slash = strrchr(path, '/');
-// 				if (unlikely(last_slash == NULL)) {
-// 					WARNING("Failed to get the last slash in the path");
-// 					kfree(path_to_check);
-// 					return -EINVAL;
-// 				}
-// 				// get the length of the path up to the last slash
-// 				const size_t len = last_slash - path;
-// 				// copy the path up to the last slash
-// 				strncpy(path_to_check, path, len);
-// 			} while (!path_exists(path_to_check));
-// 		} else {
-// 			// the path is relative, so we have to get the current working directory
-// 			const char *cwd = get_cwd();
-// 			if (unlikely(cwd == NULL)) {
-// 				WARNING("Failed to get the current working directory");
-// 				kfree(path_to_check);
-// 				return -EINVAL;
-// 			}
-// 			// store the current working directory in the path to check and free the cwd
-// 			path_to_check = kstrdup(cwd, GFP_KERNEL);
-// 			kfree(cwd);
-// 		}
-// 	}
-// #ifdef DEBUG
-// 	INFO("Checking the path %s\n", path_to_check);
-// #endif
-// 	// Check if the path is protected
-// 	const bool must_protect = is_protected(path_to_check);
-// 	int reject_call = 0;
-// 	if (must_protect) {
-// 		INFO("Attempt to open a protected resource at %s\n", path_to_check);
-// 		reject_call = 1;
-// 		goto log_open;
-// 	}
-// 	// The path is not protected, so we can allow the open syscall
-// 	return 0;
-// log_open:
 // 	// TODO: log the open syscall
-//
-// 	// now handle the open syscall
-// 	if (reject_call == 1 && not_exists == 1) {
-// 		// We redirect the open at a NULL path, so the syscall will fail.
-// 		regs->si = (unsigned long)NULL;
-// 	} else if (reject_call == 1 && not_exists == 0) {
-// 		//the filp_open is executed but with flag 0_RDONLY. Any attempt to write will return an error.
-// 		oflags->open_flag = ((flags ^ O_WRONLY) ^ O_RDWR) | O_RDONLY;
-// 		// set the flags to read-only
-// 		regs->dx = (unsigned long)oflags;
-// 	}
+reject:
+	// now handle the open syscall
+	if (not_exists == 1) {
+		// We redirect the open at a NULL path, so the syscall will fail.
+		regs->si = (unsigned long)NULL;
+	} else {
+		//the filp_open is executed but with flag 0_RDONLY. Any attempt to write will return an error.
+		// Remove write-related flags and ensure only read-only flags are kept
+		flags &= ~(O_WRONLY | O_RDWR | O_APPEND);
+		flags |= O_RDONLY;
+		oflags->open_flag = flags;
+		// set the flags to read-only
+		regs->dx = (unsigned long)oflags;
+	}
 
 	return 0;
 }

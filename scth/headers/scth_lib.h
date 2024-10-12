@@ -39,7 +39,7 @@ static inline int get_sys_idx(const char* sys_file, int hidx) {
 	FILE *sysnis = fopen(sys_file, "r");
 	if (!sysnis) {
 		fprintf(stderr, "Failed to open %s\n", sys_file);
-		return NULL;
+		return -ENOENT;
 	}
 	// we can't establish the number of available indexes, so we have to read the file and count.
 	int avail_idx = 0, i = 0;
@@ -49,7 +49,7 @@ static inline int get_sys_idx(const char* sys_file, int hidx) {
 		fprintf(stderr, "Failed to read %s\n", sys_file);
 		free(buf);
 		fclose(sysnis);
-		return NULL;
+		return -ENOENT;
 	}
 	// close the stream and count the number of indexes.
 	fclose(sysnis);

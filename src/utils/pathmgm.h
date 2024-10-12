@@ -75,6 +75,7 @@ bool is_valid_path(const char *path);
  * @return the string containing the absolute path of the directory.
  */
 int get_dir_path(const char *path, char *dir_path);
+int find_dir(const char *path, char *dir_path);
 
 /**
  * @brief Get the current process working directory

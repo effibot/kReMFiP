@@ -138,7 +138,7 @@ inline int rm_reconfigure(const path_op_t __user *op, const char __user *path) {
 	// This was previously done with path_exists but if we can't get an absolute path
 	// we assume that it doesn't exist
 	char *abs_path = kzalloc(PATH_MAX, GFP_KERNEL);
-	if (get_abs_path(kpath, abs_path) != 0) {
+	if (get_abs_path(kpath, abs_path) < 0) {
 		WARNING("The requested path does not exist\n");
 		ret = -ENOENT;
 		goto path_out;

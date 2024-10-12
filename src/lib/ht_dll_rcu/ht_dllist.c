@@ -151,10 +151,11 @@ int ht_insert_node(ht_t *ht, node_t *node) {
 	// release the lock and synchronize the RCU
 	spin_unlock(&ht->lock[bkt]);
 	synchronize_rcu();
-#ifdef DEBUG
+//#ifdef DEBUG
 	INFO("Data inserted in the hash table\n");
 	ht_print(ht);
-#endif
+//#endif
+
 	return 0;
 }
 
@@ -422,7 +423,7 @@ node_t *node_init(const char *path) {
 		return NULL;
 	}
 	// copy the path
-	const int ret = (int)strscpy(node->path, path, strlen(path));
+	const int ret = (int)strscpy(node->path, path, strlen(path)+1);
 	if (ret != strlen(path)) {
 		INFO("Failed to copy the path\n");
 		kfree(node->path);

@@ -71,6 +71,7 @@ int get_abs_path(const char *path, char *abs_path) {
 
 	struct path p;
 	char *tmp_path;
+	pr_info("got path %s\n", path);
 	int ret = kern_path(path, LOOKUP_FOLLOW, &p);
 	if (ret) {
 		WARNING("Unable to resolve the path\n");
@@ -85,22 +86,23 @@ int get_abs_path(const char *path, char *abs_path) {
 		goto out_path_put;
 	}
 
-	const char *resolved_path = d_path(&p, tmp_path, PATH_MAX);
+	char *resolved_path = d_path(&p, tmp_path, PATH_MAX);
 	if (IS_ERR(resolved_path)) {
 		ret = -ENOENT;
 		goto out_free;
 	}
+	// terminate the string, just to be sure
+	*(resolved_path + strlen(resolved_path)) = '\0';
 
 	ret = (int)strscpy(abs_path, resolved_path, PATH_MAX);
 	if (ret <= 0) {
 		WARNING("Unable to copy the resolved path\n");
 		ret = -ENOMEM;
 	}
-
 out_free:
 	//kfree(tmp_path);
 out_path_put:
-	//path_put(&p);
+	path_put(&p);
 not_found:
 	return ret;
 }
@@ -125,11 +127,13 @@ int get_abs_path_user(const int dfd, const __user char *user_path, char *abs_pat
 		goto out_path_put;
 	}
 	// Convert to a string
-	const char *resolved_path = d_path(&path_struct, tmp_path, PATH_MAX);
+	char *resolved_path = d_path(&path_struct, tmp_path, PATH_MAX);
 	if (IS_ERR(resolved_path)) {
 		ret = -ENOENT;
 		goto out_free;
 	}
+	// terminate the string, just to be sure
+	*(resolved_path + strlen(resolved_path)) = '\0';
 	// Copy the resolved absolute path into the output buffer
 	ret = (int)strscpy(abs_path, resolved_path, PATH_MAX);
 	if (ret <= 0) {
@@ -139,22 +143,36 @@ int get_abs_path_user(const int dfd, const __user char *user_path, char *abs_pat
 out_free:
 	kfree(tmp_path);
 out_path_put:
-	//path_put(&path_struct);
+	path_put(&path_struct);
 not_found:
 	return ret;
 }
 
 bool is_dir(const char *path) {
-	struct path p;
-	const int ret = kern_path(path, LOOKUP_FOLLOW, &p);
-	if (ret) {
-		WARNING("Unable to resolve the path\n");
-		return false;
+	// struct path p;
+	// const int ret = kern_path(path, LOOKUP_FOLLOW, &p);
+	// if (ret) {
+	// 	WARNING("Unable to resolve the path\n");
+	// 	return false;
+	// }
+	// const struct dentry *dentry = p.dentry;
+	// const bool is_directory = S_ISDIR(dentry->d_inode->i_mode);
+	// path_put(&p);
+	// return is_directory;
+	struct path path_struct;
+	int error;
+	struct inode *inode;
+
+	error=kern_path(path,LOOKUP_FOLLOW, &path_struct);
+	if(error){
+		WARNING("Unable to resolve the path %s\n", path);
+		return -1;
 	}
-	const struct dentry *dentry = p.dentry;
-	const bool is_directory = S_ISDIR(dentry->d_inode->i_mode);
-	path_put(&p);
-	return is_directory;
+	inode = path_struct.dentry->d_inode;
+	if (S_ISDIR(inode->i_mode)) {
+		return 0;
+	}
+	return -1;
 }
 
 bool is_file(const char *path) {
@@ -205,19 +223,20 @@ int get_dir_path(const char *path, char *dir_path) {
 	}
 	// Copy the path into the temporary buffer
 	if (strscpy(tmp_path, path, PATH_MAX) <= 0) {
-		WARNING("Unable to copy the path\n");
+		WARNING("Unable to copy the path %s\n", path);
 		kfree(tmp_path);
 		return -EINVAL;
 	}
+	INFO("temp pat %s\n", tmp_path);
 	// Get the last element of the path
 	char *last = strrchr(tmp_path, '/');
 	if (unlikely(last == NULL)) {
-		WARNING("Unable to find the last element of the path\n");
+		WARNING("Unable to find the last element of the path from %s\n", tmp_path);
 		kfree(tmp_path);
 		return -EINVAL;
 	}
-	// Set the last element to null
-	*last = '\0';
+	// Set the last element to null - any copy attempt will stop at last*
+	*(last+1) = '\0';
 	// Copy the temporary path into the output buffer
 	if (strscpy(dir_path, tmp_path, PATH_MAX) <= 0) {
 		WARNING("Unable to copy the directory path\n");
@@ -227,6 +246,33 @@ int get_dir_path(const char *path, char *dir_path) {
 	// Clean up
 	kfree(tmp_path);
 	return 0;
+}
+int find_dir(const char *path, char *buffer) {
+	if (!path || !buffer) {
+		return -EINVAL; // Invalid argument
+	}
+
+	int len = strlen(path);
+
+	int i;
+	for (i = len - 1; i >= 0; i--) {
+		if (path[i] == '/') {
+			break;
+		}
+	}
+
+	if (i < 0) {
+		return -ENOENT; // No directory found
+	}
+
+	if (i >= PATH_MAX) {
+		return -ENAMETOOLONG; // Buffer size too small
+	}
+
+	strncpy(buffer, path, i + 1);
+	buffer[i + 1] = '\0'; // Ensure null termination
+
+	return 0; // Success
 }
 
 char *get_cwd(void) {
