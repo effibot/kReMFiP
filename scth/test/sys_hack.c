@@ -3,6 +3,7 @@
 //
 
 // Include the library that is used to hack the kernel
+#define EXPORT_SYMTAB
 #include "../src/include/scth.h"
 #include "../headers/scth_lib.h"
 #include <linux/kernel.h>
@@ -15,26 +16,17 @@ __SYSCALL_DEFINEx(1, _test_syscall, int, arg) {
 	return 0;
 }
 int test_nr = -1;
-struct module *scth_mod = NULL;
 
 // Define the initialization routine for the module
 static int __init sys_hack_init(void) {
 	// Lock the SCTH module.
-	mutex_lock(&module_mutex);
-	scth_mod = find_module("SCTH");
-	if (!try_module_get(scth_mod)) {
-		mutex_unlock(&module_mutex);
-		printk(KERN_ERR "%s: SCTH module not found.\n", MODNAME);
-		return -EPERM;
-	}
-	mutex_unlock(&module_mutex);
+
 	// the system call is exposed, we can hack it
 	// Hack the system call table to point to the test syscall
 	test_nr = scth_hack(__x64_sys_test_syscall);
 	if (test_nr < 0) {
 		printk(KERN_ERR "Failed to hack the system call table.\n");
 		scth_cleanup();
-		module_put(scth_mod);
 		return -EPERM;
 	}
 	printk(KERN_INFO "Hacked system call table at index: %d\n", test_nr);
@@ -45,8 +37,7 @@ static int __init sys_hack_init(void) {
 static void __exit sys_hack_exit(void) {
 	// Unhack the system call table
 	scth_unhack(test_nr);
-	// Release the SCTH module
-	module_put(scth_mod);
+	pr_info("exit test\n");
 }
 // Define module stuffs
 #define TESTMODNAME "SCTH_TEST"

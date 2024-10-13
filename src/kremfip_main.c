@@ -213,10 +213,10 @@ static int __init kremfip_init(void) {
 		return -EPERM;
 	}
 	// Register the KProbes
-	if (register_kprobe(&kp_open) < 0) {
-		WARNING("Failed to register kprobe for do_filp_open\n");
-		return -EPERM;
-	}
+	// if (register_kprobe(&kp_open) < 0) {
+	// 	WARNING("Failed to register kprobe for do_filp_open\n");
+	// 	return -EPERM;
+	// }
 	// if (register_kprobe(&kp_unlink) < 0) {
 	// 	WARNING("Failed to register kprobe for do_unlinkat\n");
 	// 	return -EPERM;
@@ -237,7 +237,7 @@ static void __exit kremfip_exit(void) {
 	// Unregister the system call
 	scth_cleanup();
 	//unregistering kprobes
-	unregister_kprobe(&kp_open);
+	//unregister_kprobe(&kp_open);
 	// unregister_kprobe(&kp_unlink);
 	// unregister_kprobe(&kp_mkdir);
 	// unregister_kprobe(&kp_rmdir);

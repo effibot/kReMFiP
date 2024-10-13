@@ -63,7 +63,7 @@ ht_t *ht_create(const size_t size) {
 		}
 		INIT_LIST_HEAD_RCU(&table->table[bkt]->list);
 		// initialize per-bucket spinlock
-		spin_lock_init(&table->lock[bkt]);
+		spin_lock_init(&((table->lock)[bkt]));
 	}
 	// All clear, return the hash table
 #ifdef DEBUG
@@ -164,7 +164,9 @@ static void __node_reclaim_callback(struct rcu_head *rcu) {
 #ifdef DEBUG
 	INFO("Callback free for node with key %llu. Preempt count: %d\n", node->key, preempt_count());
 #endif
-	kfree(node->path);
+
+	if(node->path)
+		kfree(node->path);
 	kfree(node);
 }
 
@@ -191,7 +193,8 @@ int ht_destroy(ht_t *ht) {
 			list_del_rcu(&tmp_node->list);
 			call_rcu(&tmp_node->rcu, __node_reclaim_callback);
 		}
-		kfree(tmp_head);
+		list_del_rcu(&tmp_head->list);
+		call_rcu(&tmp_head->rcu, __node_reclaim_callback);
 	}
 	// release the lock
 	HT_UNLOCK_TABLE(ht);
@@ -393,7 +396,9 @@ uint64_t compute_hash(const char *key) {
 	}
 	//return murmur3_x86_32(key, strlen(key), HT_SEED);
 	const uint64_t *digest = murmur3_x64_128(key, (int)strlen(key), HT_SEED);
-	return digest[0] ^ digest[1];
+	const uint64_t ret = digest[0] ^ digest[1];
+	kfree(digest);
+	return ret;
 }
 
 /**
