@@ -62,31 +62,36 @@ bool is_valid_path(const char *path) {
 
 	return true;
 }
-
+/**
+ *
+ * @param path the path to resolve.
+ * Path must exist on the disk, we return an error otherwise
+ * @param abs_path the buffer where the absolute path will be stored
+ * @return error codes or 0 upon success
+ */
 int get_abs_path(const char *path, char *abs_path) {
 	if (unlikely(path == NULL)) {
 		WARNING("Path is NULL\n");
 		return -EINVAL;
 	}
 
-	struct path p;
-	char *tmp_path;
+	struct path path_struct;
 	pr_info("got path %s\n", path);
-	int ret = kern_path(path, LOOKUP_FOLLOW, &p);
+	int ret = kern_path(path, LOOKUP_FOLLOW, &path_struct);
 	if (ret) {
 		WARNING("Unable to resolve the path\n");
 		ret = -ENOENT;
 		goto not_found;
 	}
 
-	tmp_path = kzalloc(PATH_MAX, GFP_KERNEL);
+	char *tmp_path = kzalloc(PATH_MAX*sizeof(char), GFP_KERNEL);
 	if (unlikely(tmp_path == NULL)) {
 		WARNING("Unable to allocate memory for the path\n");
 		ret = -ENOMEM;
 		goto out_path_put;
 	}
 
-	char *resolved_path = d_path(&p, tmp_path, PATH_MAX);
+	char *resolved_path = d_path(&path_struct, tmp_path, PATH_MAX);
 	if (IS_ERR(resolved_path)) {
 		ret = -ENOENT;
 		goto out_free;
@@ -99,10 +104,11 @@ int get_abs_path(const char *path, char *abs_path) {
 		WARNING("Unable to copy the resolved path\n");
 		ret = -ENOMEM;
 	}
+	kfree(resolved_path);
 out_free:
-	//kfree(tmp_path);
+	kfree(tmp_path);
 out_path_put:
-	path_put(&p);
+	path_put(&path_struct);
 not_found:
 	return ret;
 }
@@ -120,7 +126,7 @@ int get_abs_path_user(const int dfd, const __user char *user_path, char *abs_pat
 	}
 	// Allocate temporary buffer to store the path
 	// heap allocation because PATH_MAX could be too large for the stack
-	char *tmp_path = kzalloc(PATH_MAX, GFP_KERNEL);
+	char *tmp_path = kzalloc(PATH_MAX*sizeof(char), GFP_KERNEL);
 	if (!tmp_path) {
 		WARNING("Unable to allocate memory for the path\n");
 		ret = -ENOMEM;
@@ -160,15 +166,13 @@ bool is_dir(const char *path) {
 	// path_put(&p);
 	// return is_directory;
 	struct path path_struct;
-	int error;
-	struct inode *inode;
 
-	error=kern_path(path,LOOKUP_FOLLOW, &path_struct);
+	const int error = kern_path(path, LOOKUP_FOLLOW, &path_struct);
 	if(error){
 		WARNING("Unable to resolve the path %s\n", path);
 		return -1;
 	}
-	inode = path_struct.dentry->d_inode;
+	struct inode *inode = path_struct.dentry->d_inode;
 	if (S_ISDIR(inode->i_mode)) {
 		return 0;
 	}
@@ -216,7 +220,7 @@ int get_dir_path(const char *path, char *dir_path) {
 		return -EINVAL;
 	}
 	// Allocate temporary buffer to store the path
-	char *tmp_path = kmalloc(PATH_MAX, GFP_KERNEL);
+	char *tmp_path = kmalloc(PATH_MAX*sizeof(char), GFP_KERNEL);
 	if (unlikely(tmp_path == NULL)) {
 		WARNING("Unable to allocate memory for the path\n");
 		return -ENOMEM;
@@ -282,7 +286,7 @@ char *get_cwd(void) {
 	struct path pwd_path;
 	get_fs_pwd(task->fs, &pwd_path);
 	// Get the path from the dentry, recursively from the end to the root
-	char *pwd = kzalloc(PATH_MAX, GFP_KERNEL);
+	char *pwd = kzalloc(PATH_MAX*sizeof(char), GFP_KERNEL);
 	if (unlikely(pwd == NULL)) {
 		WARNING("Unable to allocate memory for the path\n");
 		return NULL;

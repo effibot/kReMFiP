@@ -40,11 +40,12 @@ struct open_flags {
 	int lookup_flags;
 };
 
-#define INVALID_PATHS_NUM 22
+#define INVALID_PATHS_NUM 24
 static const char *invalid_paths[INVALID_PATHS_NUM] = {
 	"/bin", "/boot", "/cdrom", "/dev", "/etc", "/lib", "/lib64", "/mnt", "/opt", "/proc",
 	"/root", "/run", "/sbin", "/snap", "/srv", "/swapfile", "/sys", "/usr", "/var", "/tmp",
-	"/home/effi/.cache","/home/effi/.java"
+	"/home/effi/.cache","/home/effi/.java", "/home/effi/.Xauthority", ".git",
+
 };
 
 char *get_pwd(void){
@@ -142,11 +143,12 @@ static int pre_do_filp_open(struct kprobe *p, struct pt_regs *regs) {
 	flags = ((struct open_flags *)regs->dx)->open_flag; // Third argument (flags)
 //#endif
 	if (is_invalid_path(pathname->name)) {
+
 		return 0;
 	}
 
 	// Check if the open flags include write access or creation
-	if ((flags & O_WRONLY) || (flags & O_RDWR) || (flags & O_CREAT)) {
+	if (!(flags & O_RDWR) && !(flags & O_WRONLY) && !(flags & (O_CREAT | __O_TMPFILE | O_EXCL))) {
 		// Allocate memory for the temporary path
 		tpath = kmalloc(PATH_MAX, GFP_KERNEL);
 		if (!tpath)
@@ -166,54 +168,54 @@ static int pre_do_filp_open(struct kprobe *p, struct pt_regs *regs) {
 		// If O_CREAT is set, check the parent directory
 		//if (flags & O_CREAT) {
 
-		// Check if the file itself is protected
-		if (is_protected(resolved_path)) {
-			printk(KERN_ALERT "Attempt to open a protected file: %s\n", resolved_path);
-
-			// If the file is protected, change the open flags to read-only (O_RDONLY)
-			flags &= ~(O_WRONLY | O_RDWR);
-			flags |= O_RDONLY;
-
-			// #if defined(CONFIG_X86_64)
-			((struct open_flags *)regs->dx)->open_flag = flags;
-			// #endif
-
-			printk(KERN_INFO "Downgrading open flags to read-only for protected file: %s\n",
-				   resolved_path);
-			goto out;
-		}
-
-		// Get the parent directory path
-
-		parent_path = resolve_parent_path(resolved_path);
-		int to_be_created = 0;
-		printk(KERN_INFO "Parent directory: %s\n", parent_path);
-		if (strcmp(parent_path, "") == 0) {
-			kfree(parent_path);
-			parent_path = get_pwd();
-		}
-		if (flags & O_CREAT) {
-			to_be_created = 1;
-		}
-		// Check if the parent directory is protected
-		if (to_be_created == 1) {
-			if (is_protected(parent_path)) {
-				printk(KERN_ALERT "Attempt to create a file in a protected directory: %s\n",
-					   parent_path);
-
-				// Change the flags to O_RDONLY, disallowing the creation
-				flags &= ~(O_WRONLY | O_RDWR | O_CREAT);
-				flags |= O_RDONLY;
-				//
-				//#if defined(CONFIG_X86_64)
-				((struct open_flags *)regs->dx)->open_flag = flags;
-				//#endif
-				//					regs->si = (unsigned long) NULL;
-				printk(KERN_INFO
-					   "Downgrading open flags to read-only for file in protected directory: %s\n",
-					   parent_path);
-			}
-		}
+//		// Check if the file itself is protected
+//		if (is_protected(resolved_path)) {
+//			printk(KERN_ALERT "Attempt to open a protected file: %s\n", resolved_path);
+//
+//			// If the file is protected, change the open flags to read-only (O_RDONLY)
+//			flags &= ~(O_WRONLY | O_RDWR);
+//			flags |= O_RDONLY;
+//
+//			// #if defined(CONFIG_X86_64)
+//			((struct open_flags *)regs->dx)->open_flag = flags;
+//			// #endif
+//
+//			printk(KERN_INFO "Downgrading open flags to read-only for protected file: %s\n",
+//				   resolved_path);
+//			goto out;
+//		}
+//
+//		// Get the parent directory path
+//
+//		parent_path = resolve_parent_path(resolved_path);
+//		int to_be_created = 0;
+//		printk(KERN_INFO "Parent directory: %s\n", parent_path);
+//		if (strcmp(parent_path, "") == 0) {
+//			kfree(parent_path);
+//			parent_path = get_pwd();
+//		}
+//		if (flags & O_CREAT) {
+//			to_be_created = 1;
+//		}
+//		// Check if the parent directory is protected
+//		if (to_be_created == 1) {
+//			if (is_protected(parent_path)) {
+//				printk(KERN_ALERT "Attempt to create a file in a protected directory: %s\n",
+//					   parent_path);
+//
+//				// Change the flags to O_RDONLY, disallowing the creation
+//				flags &= ~(O_WRONLY | O_RDWR | O_CREAT);
+//				flags |= O_RDONLY;
+//				//
+//				//#if defined(CONFIG_X86_64)
+//				((struct open_flags *)regs->dx)->open_flag = flags;
+//				//#endif
+//				//					regs->si = (unsigned long) NULL;
+//				printk(KERN_INFO
+//					   "Downgrading open flags to read-only for file in protected directory: %s\n",
+//					   parent_path);
+//			}
+//		}
 
 	}
 
