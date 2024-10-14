@@ -21,6 +21,7 @@
 #include <linux/kobject.h>
 #include <linux/memory.h>
 #include <linux/module.h>
+#include <linux/namei.h>
 #include <linux/random.h>
 #include <linux/slab.h>
 #include <linux/string.h>
@@ -252,137 +253,69 @@ int rm_open_pre_handler(struct kprobe *ri, struct pt_regs *regs) {
 	 * Remember that at least the parent directory of the opened resource must exist or the
 	 * kernel fails even if the O_CREAT flag is set.
 	 */
+	char *path_buf = NULL;
+	const char *pathname = NULL;
 
-	// To reduce the overhead, we can check if the flags imply write permissions first
-	struct open_flags *oflags = (struct open_flags *)regs->dx;
-	if (unlikely(oflags == NULL)) {
-#ifdef DEBUG
-		WARNING("Invalid flags for the open syscall");
-#endif
-		return 0;
-	}
-	// get the flags from the registers and check if they do not imply write permissions
-	int flags = oflags->open_flag;
-	const unsigned short mode = oflags->mode;
-	if (!(flags & O_RDWR) && !(flags & O_WRONLY) && !(flags & (O_CREAT | __O_TMPFILE | O_EXCL))) {
-		// the open syscall is not attempting to write on the file, so we can allow it
-#ifdef DEBUG
-		INFO("Skipping the check for the open syscall, no open flag\n");
-#endif
-		return 0;
-	}
+	// Extract the function arguments from the registers based on the x86_64 ABI
+	int dfd = (int)regs->di; // 1st argument: directory file descriptor
+	struct filename *name =
+		(struct filename *)regs->si; // 2nd argument: filename (struct filename pointer)
+	struct open_flags *open_flags =
+		(struct open_flags *)regs->dx; // 3rd argument: open_flags (struct open_flags pointer)
 
-	// the do_filp_open is attempting to write on some file, so we have to do the probing work
-	const struct filename *fname = (struct filename *)regs->si;
-	if (unlikely(fname == NULL)) {
-#ifdef DEBUG
-		WARNING("Invalid filename for the open syscall");
-#endif
+	int flags = open_flags->open_flag; // Open flags
+	// Only proceed if the file is opened for writing or creating
+	if(!(flags & O_RDWR) && !(flags & O_WRONLY) && !(flags & (O_CREAT | __O_TMPFILE | O_EXCL )))
+		return 0;
+
+	// Get the file path from the filename struct
+	pathname = name->name;
+
+	// If pathname is NULL, there's nothing to check, skip
+	if (!pathname) {
 		return 0;
 	}
 
-	const char *kpath = fname->name;
-// 	const __user char *upath = fname->uptr;
-// 	if (!kpath) {
-// #ifdef DEGBUG
-// 		WARNING("Invalid or inaccessible path for the open syscall");
-// #endif
-// 		return 0;
-// 	}
+	// Check if the path is valid and should be monitored
+	if (!is_valid_path(pathname)) {
+		return 0; // Skip if the path is not valid
+	}
 
-	/* Avoid to check for temporary files and other special cases
-	 * If the path exists, kpath is always filled with the resolved path,
-	 * so we can use it to avoid probing temporary files and other special cases.
-	 */
-	if (!is_valid_path(kpath)) {
-		// the path is not valid for our purposes, so we can allow the open syscall
 #ifdef DEBUG
-		INFO("skipping the check for the path %s\n", kpath);
+	INFO("Probing do_filp_open with (flags, mode)=(%d, %d) for path %s\n", open_flags->open_flag, open_flags->mode, pathname);
 #endif
+	// Get the absolute path of the file
+	path_buf = kzalloc(PATH_MAX * sizeof(char), GFP_KERNEL);
+	if (unlikely(path_buf == NULL)) {
+		WARNING("Failed to allocate memory for the path buffer\n");
 		return 0;
 	}
-	// INFO("opening valid res %s\n", kpath);
-	// get the file descriptor
-	const int dfd = (int)regs->di;
-	// Transform the path to an absolute path
-	char *abs_path = NULL;
-	int ret = 0, not_exists = 0;
-
-	abs_path = kzalloc(PATH_MAX*sizeof(char), GFP_KERNEL);
-	if(abs_path == NULL) {
-		WARNING("Failed to allocate memory for the absolute path");
-		return -ENOMEM;
-	}
-	// if we are opening an existing resource, get_abs_path always resolves to a valid path
-	ret = get_abs_path(kpath, abs_path);
-	if(ret == -ENOENT && (flags & (O_CREAT | __O_TMPFILE | O_EXCL) || mode)) {
-		INFO("not exist and creating");
-		// the resource doesn't exist and is being created, we have to check its parent.
-		// Since this must exist, we need to jump back to the last /
-		// be sure that abs_path is cleared;
-		memzero_explicit(abs_path, strlen(abs_path));
-		char * tmp = kzalloc(PATH_MAX * sizeof(char), GFP_KERNEL);
-		if(tmp == NULL) {
-			WARNING("Failed to allocate memory for temporary path");
-			return -ENOMEM;
+	int errcode = get_abs_path(pathname, path_buf);
+	// if the resource does not exist, we need to check the parent directory
+	if (errcode == -ENOENT) {
+		if(get_dir_path(pathname, path_buf) != 0) {
+			WARNING("Failed to get the parent directory path\n");
+			kfree(path_buf);
+			return 0;
 		}
-		if(strscpy(tmp, kpath, PATH_MAX) <= 0) {
-			WARNING("Error occurs on copy to temporary path");
-			kfree(abs_path);
-			return -ENOMEM;
+		// the parent directory is the top-level directory or the cwd if the path is relative
+		if (is_protected(path_buf)) {
+			WARNING("Attempt to open a protected directory: %s\n", path_buf);
+			kfree(path_buf);
+			// reject system call to reject directory
 		}
-		char * last = strrchr(tmp, '/');
-		if(last != NULL) {
-			// path is '/path/to/file' or 'to/file'
-			// terminate the string to the last /
-			*last = '\0';
-			ret = get_abs_path(tmp, abs_path);
-			if(ret < 0) {
-				// The parent doesn't exist, drop the probing as the syscall will fail anyways
-				INFO("Dropping the syscall");
-				return 0;
-			}
+	}
+	// the resource exists, chwe can check it
+	else if (errcode == 0) {
+		if (is_protected(path_buf)) {
+			WARNING("Attempt to open a protected file: %s\n", path_buf);
+			kfree(path_buf);
+			// reject system call to reject file
 		}
-		// path is something like 'file', so strchr(/) returns an empty string.
-		// use the cwd as the absolute path to check
-		kfree(abs_path);
-		abs_path = get_cwd();
-		not_exists = 1;
 	}
-	// if any error occurs while resolving the path stop the probing
-	if(ret < 0 || abs_path[0] == '0') {
-		INFO("ret %d, abs path %s",ret, abs_path);
-		return 0;
-	}
-
-	if(is_protected(abs_path)) {
-		INFO("Intercepted open syscall at %s with flags %d and fd %d\n", abs_path, flags, dfd);
-		goto reject;
-	}
-
-	// not rejected, return
-	return 0;
-
-// 	// TODO: log the open syscall
-reject:
-	// now handle the open syscall
-	if (not_exists == 1) {
-		// We redirect the open at a NULL path, so the syscall will fail.
-		flags &= ~(O_WRONLY | O_RDWR | O_CREAT);
-		flags |= O_RDONLY;
-		regs->si = (unsigned long)NULL;
-	} else {
-		//the filp_open is executed but with flag 0_RDONLY. Any attempt to write will return an error.
-		// Remove write-related flags and ensure only read-only flags are kept
-		flags &= ~(O_WRONLY | O_RDWR | O_APPEND);
-		flags |= O_RDONLY;
-		oflags->open_flag = flags;
-		// set the flags to read-only
-		((struct open_flags *)regs->dx)->open_flag = oflags->open_flag;
-	}
-
-	return 0;
+	return 0; // Continue with the normal system call
 }
+
 int rm_mkdir_pre_handler(struct kprobe *ri, struct pt_regs *regs) {
 	return 0;
 }

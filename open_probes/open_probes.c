@@ -64,53 +64,44 @@ char *get_pwd(void){
 
 }
 // Helper function to resolve the parent directory path
-static char *resolve_parent_path(const char *file_path)
+static int resolve_parent_path(const char *file_path, char *dir_path)
 {
-	int i= strlen(file_path)-1;
-	char *new_string = kzalloc(strlen(file_path), GFP_KERNEL);
-	if(new_string == NULL)  return "";
-
-	while(i>=0){
-		if(file_path[i] != '/'){
-			new_string[i] = '\0';
-		}
-		else{
-			new_string[i]='\0';
-			i--;
-			break;
-		}
-		i--;
+	if (unlikely(file_path == NULL)) {
+		pr_warn("Path is NULL\n");
+		return -EINVAL;
 	}
-
-	while(i>=0){
-		new_string[i] = file_path[i];
-		i--;
+	// Copy the path to a temporary buffer
+	char *tmp_path = kzalloc(PATH_MAX * sizeof(char), GFP_KERNEL);
+	if (unlikely(tmp_path == NULL)) {
+		pr_warn("Unable to allocate memory for the path\n");
+		return -ENOMEM;
 	}
-	if(new_string[strlen(new_string)] == '/')
-		new_string[strlen(new_string)] = '\0';
-
-	pr_info("found %s", new_string);
-	if(new_string[0] != '/'){
-		pr_info("found non absolute");
-		struct path path_struct;
-		char * pwd = get_pwd();
-		char * pwd_to_path = kzalloc(PATH_MAX, GFP_KERNEL);
-		strscpy(pwd_to_path, pwd, PATH_MAX);
-		pwd_to_path[strlen(pwd_to_path)]='/';
-		strcat(pwd_to_path, new_string);
-		if(kern_path(pwd_to_path, LOOKUP_FOLLOW, &path_struct)){
-				pr_warn("kern path fail");
-				kfree(pwd_to_path);
-				return new_string;
-		}
-		pr_info("%c",pwd_to_path[strlen(pwd_to_path)]);
-		if(pwd_to_path[strlen(pwd_to_path)-1] == '/')
-			pwd_to_path[strlen(pwd_to_path)-1] = '\0';
-
-		path_put(&path_struct);
-		return pwd_to_path;
+	int ret = (int)strscpy(tmp_path, file_path, PATH_MAX);
+	if (ret <= 0) {
+		pr_warn("Unable to copy the path\n");
+		kfree(tmp_path);
+		return -ENOMEM;
 	}
-	return new_string;
+	/* Find the last occurrence of the directory separator:
+	 * We could have three cases:
+	 * 1. path = "/path/to/dir/file"
+	 * 2. path = "dir/file"
+	 * 3. path = "file"
+	 * In the first case, we need to find the last occurrence of the separator
+	 * In the second case, we need to find the first occurrence of the separator
+	 * In the third case, we need to return the current directory
+	 */
+	const char *last_sep = strrchr(tmp_path, '/');
+	if (last_sep) {
+		size_t dir_len = last_sep - tmp_path+1;
+		strscpy(dir_path, tmp_path, dir_len);
+		dir_path[dir_len] = '\0';
+	} else {
+		// If no separator is found, return the current directory
+		strscpy(dir_path, get_pwd(), PATH_MAX);
+	}
+	kfree(tmp_path);
+	return 0;
 }
 // Check if path starts with an invalid path prefix
 static bool is_invalid_path(const char *path) {
@@ -164,7 +155,14 @@ static int pre_do_filp_open(struct kprobe *p, struct pt_regs *regs) {
 
 		// Log the path for debugging
 		printk(KERN_INFO "Opening path: %s with flags: %x\n", resolved_path, flags);
-
+		char *abs_path = kzalloc(PATH_MAX * sizeof(char), GFP_KERNEL);
+		if (unlikely(abs_path == NULL)) {
+			printk(KERN_ERR "Failed to allocate memory for the path buffer\n");
+			ret = -ENOMEM;
+			goto out;
+		}
+		resolve_parent_path(resolved_path, abs_path);
+		printk(KERN_INFO "Parent directory: %s\n", abs_path);
 		// If O_CREAT is set, check the parent directory
 		//if (flags & O_CREAT) {
 
