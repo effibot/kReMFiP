@@ -1,8 +1,8 @@
 #!/bin/bash
 # unload the modules
 # first we need to unload the monitor
-echo "Removing the Reference Monitor..."
+#echo "Removing the Reference Monitor..."
 sudo rmmod kremfip
-echo "Done. Restoring the Syscall Table..."
+#echo "Done. Restoring the Syscall Table..."
 sudo rmmod scth
-echo "Done. All Clear."
+#echo "Done. All Clear."

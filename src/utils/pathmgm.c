@@ -79,7 +79,6 @@ int get_abs_path(const char *path, char *abs_path) {
 #ifdef DEBUG
 		WARNING("Unable to resolve the path, fallback\n");
 #endif
-		ret = -ENOENT;
 		goto not_found;
 	}
 
@@ -96,8 +95,9 @@ int get_abs_path(const char *path, char *abs_path) {
 	}
 	// terminate the string, just to be sure
 	*(resolved_path + strlen(resolved_path)) = '\0';
-
+	// resolved_path = krealloc(resolved_path, strlen(resolved_path) + 1, GFP_KERNEL);
 	ret = (int)strscpy(abs_path, resolved_path, PATH_MAX);
+	// kfree(resolved_path);
 	if (ret <= 0) {
 		WARNING("Unable to copy the resolved path\n");
 		ret = -ENOMEM;
@@ -119,7 +119,7 @@ int get_abs_path_user(const int dfd, const __user char *user_path, char *abs_pat
 	struct path path_struct;
 	int ret = user_path_at(dfd, user_path, LOOKUP_FOLLOW, &path_struct);
 	if (ret) {
-		//ret = -ENOENT;
+		ret = -ENOENT;
 		goto not_found;
 	}
 	// Allocate temporary buffer to store the path
@@ -138,11 +138,15 @@ int get_abs_path_user(const int dfd, const __user char *user_path, char *abs_pat
 	}
 	// terminate the string, just to be sure
 	*(resolved_path + strlen(resolved_path)) = '\0';
+	//resolved_path = krealloc(resolved_path, strlen(resolved_path) + 1, GFP_KERNEL);
 	// Copy the resolved absolute path into the output buffer
 	ret = (int)strscpy(abs_path, resolved_path, PATH_MAX);
+	//kfree(resolved_path);
 	if (ret <= 0) {
 		WARNING("Unable to copy the resolved path\n");
+		ret = -ENOMEM;
 	}
+
 	ret = ret <= 0 ? ret : 0;
 out_free:
 	kfree(tmp_path);
