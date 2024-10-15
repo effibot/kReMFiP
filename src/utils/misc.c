@@ -113,13 +113,15 @@ inline int hex_to_str(const unsigned char *hex, const size_t len, char* buf) {
  * @return The kernel space buffer or an error code
  */
 inline void *map_user_buffer(const void __user *ubuff, size_t len) {
+#ifdef DEBUG
 	INFO("mapping user buffer to kernel space\n");
+#endif
 	// safety checks
 	if (ubuff == NULL) {
 		return ERR_PTR(-EINVAL);
 	}
 	// allocate the kernel space buffer
-	void *kbuff = kmalloc(len * sizeof(void), GFP_KERNEL);
+	void *kbuff = kzalloc(len * sizeof(void), GFP_KERNEL);
 	if (kbuff == NULL) {
 		return ERR_PTR(-ENOMEM);
 	}

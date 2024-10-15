@@ -13,7 +13,7 @@
 #include <linux/string.h>
 #include <linux/uaccess.h>
 // Define a vector of invalid system paths
-static const char *invalid_paths[] = { "/run", "/var", "/tmp", "/dev", "/proc", "/etc" };
+static const char *invalid_paths[] = { "/run", "/var", "/tmp", "/dev", "/proc", "/etc", "/sys" };
 
 /**
  * @brief Checks if the path exists in the filesystem
@@ -74,10 +74,11 @@ int get_abs_path(const char *path, char *abs_path) {
 	}
 
 	struct path path_struct;
-	INFO("path: %s\n", path);
 	int ret = kern_path(path, LOOKUP_FOLLOW, &path_struct);
 	if (ret) {
+#ifdef DEBUG
 		WARNING("Unable to resolve the path, fallback\n");
+#endif
 		ret = -ENOENT;
 		goto not_found;
 	}
@@ -101,6 +102,7 @@ int get_abs_path(const char *path, char *abs_path) {
 		WARNING("Unable to copy the resolved path\n");
 		ret = -ENOMEM;
 	}
+	ret = ret <= 0 ? ret : 0;
 out_free:
 	kfree(tmp_path);
 out_path_put:
@@ -140,8 +142,8 @@ int get_abs_path_user(const int dfd, const __user char *user_path, char *abs_pat
 	ret = (int)strscpy(abs_path, resolved_path, PATH_MAX);
 	if (ret <= 0) {
 		WARNING("Unable to copy the resolved path\n");
-		ret = -ENOMEM;
 	}
+	ret = ret <= 0 ? ret : 0;
 out_free:
 	kfree(tmp_path);
 out_path_put:
@@ -150,17 +152,92 @@ not_found:
 	return ret;
 }
 
+int get_dir_path(const char *path, char *dir_path) {
+	int ret = 0;
+	char *tmp_path = NULL;
+
+	if (unlikely(path == NULL)) {
+		WARNING("Path is NULL\n");
+		ret = -EINVAL;
+		goto out;
+	}
+
+	// Copy the path to a temporary buffer
+	tmp_path = kzalloc(PATH_MAX * sizeof(char), GFP_KERNEL);
+	if (unlikely(tmp_path == NULL)) {
+		WARNING("Unable to allocate memory for the path\n");
+		ret = -ENOMEM;
+		goto out;
+	}
+	ret = (int)strscpy(tmp_path, path, PATH_MAX);
+	if (ret <= 0) {
+		WARNING("Unable to copy the path\n");
+		ret = -ENOMEM;
+		goto out_free;
+	}
+	// reduce memory overhead by reallocating the buffer
+	tmp_path = krealloc(tmp_path, strlen(tmp_path) + 1, GFP_KERNEL);
+	/* Find the last occurrence of the directory separator:
+	 * We could have three cases:
+	 * 1. path = "/path/to/dir/file" ->  we need to find the last occurrence of the separator
+	 * 2. path = "dir/file" -> we need to find the first occurrence of the separator
+	 * 3. path = "file" -> we need to return the current directory
+	 */
+	const char *last_sep = strrchr(tmp_path, '/');
+
+	if (last_sep) {
+		// calculate the length +1 so that the copy include the null-terminator
+		const size_t len = last_sep - tmp_path +1;
+		// null-terminate the temp path to the last sep
+		*(tmp_path + len) = '\0';
+		// copy
+		ret = (int)strscpy(dir_path, tmp_path, PATH_MAX);
+		if (ret <= 0) {
+			WARNING("Unable to copy the path\n");
+			goto out_free;
+		}
+	} else {
+		// If no separator is found, return the current directory
+		const char * cwd = get_cwd();
+		ret = (int)strscpy(dir_path, cwd, PATH_MAX);
+		if (ret <= 0) {
+			WARNING("Unable to copy the path\n");
+			goto out_free;
+		}
+	}
+	ret = 0;
+out_free:
+	kfree(tmp_path);
+out:
+	return ret;
+}
+
+char *get_cwd(void) {
+	// We use 'current' to get the current task, so no need manage it
+	const struct task_struct *task = current;
+	// Get the current working directory
+	struct path pwd_path;
+	get_fs_pwd(task->fs, &pwd_path);
+	// Get the path from the dentry, recursively from the end to the root
+	char *pwd = kzalloc(PATH_MAX * sizeof(char), GFP_KERNEL);
+	if (unlikely(pwd == NULL)) {
+		WARNING("Unable to allocate memory for the path\n");
+		return NULL;
+	}
+	char *pwd_path_str = dentry_path_raw(pwd_path.dentry, pwd, PATH_MAX);
+	if (IS_ERR(pwd_path_str)) {
+		WARNING("Unable to get the path\n");
+		kfree(pwd);
+		return NULL;
+	}
+	// Release the path
+	path_put(&pwd_path);
+	kfree(pwd);
+	pwd_path_str = krealloc(pwd_path_str, strlen(pwd_path_str) + 1, GFP_KERNEL);
+	return pwd_path_str;
+}
+
 bool is_dir(const char *path) {
-	// struct path p;
-	// const int ret = kern_path(path, LOOKUP_FOLLOW, &p);
-	// if (ret) {
-	// 	WARNING("Unable to resolve the path\n");
-	// 	return false;
-	// }
-	// const struct dentry *dentry = p.dentry;
-	// const bool is_directory = S_ISDIR(dentry->d_inode->i_mode);
-	// path_put(&p);
-	// return is_directory;
 	struct path path_struct;
 
 	const int error = kern_path(path, LOOKUP_FOLLOW, &path_struct);
@@ -169,10 +246,9 @@ bool is_dir(const char *path) {
 		return -1;
 	}
 	struct inode *inode = path_struct.dentry->d_inode;
-	if (S_ISDIR(inode->i_mode)) {
-		return 0;
-	}
-	return -1;
+	const bool is_dir = S_ISDIR(inode->i_mode);
+	path_put(&path_struct);
+	return is_dir;
 }
 
 bool is_file(const char *path) {
@@ -202,67 +278,4 @@ bool is_symlink(const char *path) {
 	const bool is_symlink = S_ISLNK(dentry->d_inode->i_mode);
 	path_put(&p);
 	return is_symlink;
-}
-
-int get_dir_path(const char *path, char *dir_path) {
-	if (unlikely(path == NULL)) {
-		WARNING("Path is NULL\n");
-		return -EINVAL;
-	}
-	// Copy the path to a temporary buffer
-	char *tmp_path = kzalloc(PATH_MAX * sizeof(char), GFP_KERNEL);
-	if (unlikely(tmp_path == NULL)) {
-		WARNING("Unable to allocate memory for the path\n");
-		return -ENOMEM;
-	}
-	int ret = (int)strscpy(tmp_path, path, PATH_MAX);
-	if (ret <= 0) {
-		WARNING("Unable to copy the path\n");
-		kfree(tmp_path);
-		return -ENOMEM;
-	}
-	/* Find the last occurrence of the directory separator:
-	 * We could have three cases:
-	 * 1. path = "/path/to/dir/file"
-	 * 2. path = "dir/file"
-	 * 3. path = "file"
-	 * In the first case, we need to find the last occurrence of the separator
-	 * In the second case, we need to find the first occurrence of the separator
-	 * In the third case, we need to return the current directory
-	 */
-	const char *last_sep = strrchr(tmp_path, '/');
-	if (last_sep) {
-		size_t dir_len = last_sep - tmp_path + 1;
-		strscpy(dir_path, tmp_path, dir_len);
-		dir_path[dir_len+1] = '\0';
-	} else {
-		// If no separator is found, return the current directory
-		strscpy(dir_path, get_cwd(), PATH_MAX);
-	}
-	kfree(tmp_path);
-	return 0;
-}
-
-char *get_cwd(void) {
-	// We use 'current' to get the current task, so no need manage it
-	const struct task_struct *task = current;
-	// Get the current working directory
-	struct path pwd_path;
-	get_fs_pwd(task->fs, &pwd_path);
-	// Get the path from the dentry, recursively from the end to the root
-	char *pwd = kzalloc(PATH_MAX * sizeof(char), GFP_KERNEL);
-	if (unlikely(pwd == NULL)) {
-		WARNING("Unable to allocate memory for the path\n");
-		return NULL;
-	}
-	char *pwd_path_str = dentry_path_raw(pwd_path.dentry, pwd, PATH_MAX);
-	if (IS_ERR(pwd_path_str)) {
-		WARNING("Unable to get the path\n");
-		kfree(pwd);
-		return NULL;
-	}
-	// Release the path
-	path_put(&pwd_path);
-	kfree(pwd);
-	return pwd_path_str;
 }

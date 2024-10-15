@@ -98,7 +98,8 @@ inline int rm_state_set(const state_t __user *u_state) {
 	}
 	// Free the allocated memory
 state_out:
-	kfree(new_state);
+	if(new_state)
+		kfree(new_state);
 	spin_unlock(&rm_p->lock);
 out:
 	return ret;
@@ -187,10 +188,13 @@ inline int rm_reconfigure(const path_op_t __user *op, const char __user *path) {
 	}
 	// Free the allocated memory
 op_out:
-	kfree(new_op);
+	if(new_op)
+		kfree(new_op);
 path_out:
-	kfree(kpath);
-	kfree(abs_path);
+	if(kpath)
+		kfree(kpath);
+	if(abs_path)
+		kfree(abs_path);
 	spin_unlock(&rm_p->lock);
 out:
 	return ret;
@@ -234,7 +238,8 @@ inline int rm_pwd_check(const char __user *pwd) {
 #endif
 	// Free the allocated memory
 pwd_out:
-	kfree(kpwd);
+	if(kpwd)
+		kfree(kpwd);
 out:
 	return ret;
 }

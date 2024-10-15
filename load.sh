@@ -1,4 +1,5 @@
 #!/bin/bash
+make clean >> /dev/null
 make all >> /dev/null
 # load the modules
 echo "Hacking the syscall table to insert our system calls..."

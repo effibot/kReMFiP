@@ -51,7 +51,7 @@ endif
 .PHONY: all clean load unload user
 
 all:
-	$(MAKE) -C $(KDIR) M=$(PWD) modules EXTRA_CFLAGS="$(CFLAGS)"
+	$(MAKE) -C $(KDIR) M=$(PWD) modules EXTRA_CFLAGS="$(CFLAGS)" -j
 
 clean:
 	$(MAKE) -C $(KDIR) M=$(PWD) clean

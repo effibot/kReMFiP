@@ -253,11 +253,10 @@ int rm_open_pre_handler(struct kprobe *ri, struct pt_regs *regs) {
 	 * Remember that at least the parent directory of the opened resource must exist or the
 	 * kernel fails even if the O_CREAT flag is set.
 	 */
-	char *path_buf = NULL;
 	const char *pathname = NULL;
 
 	// Extract the function arguments from the registers based on the x86_64 ABI
-	int dfd = (int)regs->di; // 1st argument: directory file descriptor
+
 	struct filename *name =
 		(struct filename *)regs->si; // 2nd argument: filename (struct filename pointer)
 	struct open_flags *open_flags =
@@ -265,7 +264,7 @@ int rm_open_pre_handler(struct kprobe *ri, struct pt_regs *regs) {
 
 	int flags = open_flags->open_flag; // Open flags
 	// Only proceed if the file is opened for writing or creating
-	if(!(flags & O_RDWR) && !(flags & O_WRONLY) && !(flags & (O_CREAT | __O_TMPFILE | O_EXCL )))
+	if (!(flags & O_RDWR) && !(flags & O_WRONLY) && !(flags & (O_CREAT | __O_TMPFILE | O_EXCL)))
 		return 0;
 
 	// Get the file path from the filename struct
@@ -280,40 +279,91 @@ int rm_open_pre_handler(struct kprobe *ri, struct pt_regs *regs) {
 	if (!is_valid_path(pathname)) {
 		return 0; // Skip if the path is not valid
 	}
-
+	int _dir = 0, _file = 0;
 #ifdef DEBUG
-	INFO("Probing do_filp_open with (flags, mode)=(%d, %d) for path %s\n", open_flags->open_flag, open_flags->mode, pathname);
+	int dfd = (int)regs->di; // 1st argument: directory file descriptor
+	INFO("Probing do_filp_open with dfd %d and (flags, mode)=(%d, %d) for path %s\n", dfd,
+		 open_flags->open_flag, open_flags->mode, pathname);
 #endif
-	// Get the absolute path of the file
-	path_buf = kzalloc(PATH_MAX * sizeof(char), GFP_KERNEL);
+	// Get the absolute path of the file its parent directory
+	char * path_buf = kzalloc(PATH_MAX * sizeof(char), GFP_KERNEL);
 	if (unlikely(path_buf == NULL)) {
 		WARNING("Failed to allocate memory for the path buffer\n");
 		return 0;
 	}
-	int errcode = get_abs_path(pathname, path_buf);
-	// if the resource does not exist, we need to check the parent directory
-	if (errcode == -ENOENT) {
-		if(get_dir_path(pathname, path_buf) != 0) {
-			WARNING("Failed to get the parent directory path\n");
-			kfree(path_buf);
-			return 0;
-		}
-		// the parent directory is the top-level directory or the cwd if the path is relative
-		if (is_protected(path_buf)) {
-			WARNING("Attempt to open a protected directory: %s\n", path_buf);
-			kfree(path_buf);
-			// reject system call to reject directory
-		}
+	char * parent_buf = kzalloc(PATH_MAX * sizeof(char), GFP_KERNEL);
+	if (unlikely(parent_buf == NULL)) {
+		WARNING("Failed to allocate memory for the parent buffer\n");
+		kfree(path_buf);
+		return 0;
 	}
-	// the resource exists, chwe can check it
-	else if (errcode == 0) {
-		if (is_protected(path_buf)) {
-			WARNING("Attempt to open a protected file: %s\n", path_buf);
-			kfree(path_buf);
-			// reject system call to reject file
-		}
+	const int err_abs = get_abs_path(pathname, path_buf);
+	if(err_abs != 0) {
+		WARNING("Failed to get the absolute path of %s with code %d\n", pathname, err_abs);
+		kfree(path_buf);
+		kfree(parent_buf);
+		return 0;
 	}
-	return 0; // Continue with the normal system call
+	path_buf = krealloc(path_buf, strlen(path_buf) + 1, GFP_KERNEL);
+
+	int err_parent = 0;
+	err_parent = get_dir_path(pathname, parent_buf);
+	// Check if something went wrong when calculating the parent directory
+	if (err_parent != 0) {
+		WARNING("Failed to get the parent directory of %s with code %d\n", pathname, err_parent);
+		kfree(parent_buf);
+		kfree(path_buf);
+		return 0;
+	}
+	parent_buf = krealloc(parent_buf, strlen(parent_buf) + 1, GFP_KERNEL);
+
+	/* No need to check if the parent dir exists for two reasons:
+	 * 1. The kernel will fail if the parent directory does not exist when resolving the system call.
+	 * 2. If the parent is protected, then it exists as the reference monitor only accepts existing resources.
+	 */
+	INFO("\nFound Parent %s\nfor Resource %s", parent_buf, path_buf);
+	// Check if the parent directory is protected
+	if (is_protected(parent_buf)) {
+		WARNING("Attempt to open a protected directory: %s\n", parent_buf);
+		kfree(parent_buf);
+		kfree(path_buf);
+		// reject system call to reject directory
+		_dir = 1;
+		goto reject;
+	}
+	// The parent directory is not protected, check if the file exists and it's protected
+	if (is_protected(path_buf)) {
+		WARNING("Attempt to open a protected file: %s\n", path_buf);
+		kfree(path_buf);
+		kfree(parent_buf);
+		// reject system call to reject file
+		_file = 1;
+		goto reject;
+
+	}
+	goto out;
+reject:
+	// If the file is protected, change the open flags to read-only (O_RDONLY)
+	if(_file) {
+		flags &= ~(O_WRONLY | O_RDWR);
+		flags |= O_RDONLY;
+		((struct open_flags *)regs->dx)->open_flag = flags;
+	} else if(_dir) {
+		// if the directory is protected don't allow creations
+		if(flags & O_CREAT)
+			regs->si = (unsigned long) NULL;
+		// if the directory is protected, change the open flags to read-only (O_RDONLY)
+		flags &= ~(O_WRONLY | O_RDWR | O_CREAT);
+		flags |= O_RDONLY;
+		((struct open_flags *)regs->dx)->open_flag = flags;
+
+	}
+out:
+	if(path_buf)
+		kfree(path_buf);
+	if(parent_buf)
+		kfree(parent_buf);
+	return 0;
 }
 
 int rm_mkdir_pre_handler(struct kprobe *ri, struct pt_regs *regs) {
