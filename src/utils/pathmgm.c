@@ -169,7 +169,7 @@ int get_dir_path(const char *path, char *dir_path) {
 	}
 	const size_t path_len = strlen(path);
 	if(path_len == 0) {
-#ifdef
+#ifdef DEBUG
 		WARNING("Source Path is empty, fallback to cwd");
 #endif
 		goto empty_path;
