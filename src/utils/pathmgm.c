@@ -13,7 +13,12 @@
 #include <linux/string.h>
 #include <linux/uaccess.h>
 // Define a vector of invalid system paths
-static const char *invalid_paths[] = { "/run", "/var", "/tmp", "/dev", "/proc", "/etc", "/sys" };
+static const char *invalid_paths[INVALID_PATHS_NUM] = { "/bin", "/boot", "/cdrom", "/dev", "/etc", "/lib", "/lib64", "/mnt", "/opt", "/proc",
+	"/root", "/run", "/sbin", "/snap", "/srv", "/swapfile", "/sys", "/usr", "/var", "/tmp",
+	"/home/effi/.cache","/home/effi/.java", "/home/effi/.Xauthority", ".git",
+	"/home/effi/.local", "/home/effi/.config", "/home/effi/.sudo_as_admin_successful"
+};
+#define PATH_LEN 1024
 
 /**
  * @brief Checks if the path exists in the filesystem
@@ -82,25 +87,22 @@ int get_abs_path(const char *path, char *abs_path) {
 		goto not_found;
 	}
 
-	char *tmp_path = kzalloc(PATH_MAX * sizeof(char), GFP_KERNEL);
+	char *tmp_path = kzalloc(PATH_LEN * sizeof(char), GFP_KERNEL);
 	if (unlikely(tmp_path == NULL)) {
 		WARNING("Unable to allocate memory for the path\n");
 		ret = -ENOMEM;
 		goto out_path_put;
 	}
-	char *resolved_path = d_path(&path_struct, tmp_path, PATH_MAX);
+	const char *resolved_path = d_path(&path_struct, tmp_path, PATH_LEN);
 	if (IS_ERR(resolved_path)) {
 		ret = -ENOENT;
 		goto out_free;
 	}
 	// terminate the string, just to be sure
-	*(resolved_path + strlen(resolved_path)) = '\0';
-	// resolved_path = krealloc(resolved_path, strlen(resolved_path) + 1, GFP_KERNEL);
-	ret = (int)strscpy(abs_path, resolved_path, PATH_MAX);
-	// kfree(resolved_path);
+
+	ret = (int)strscpy(abs_path, resolved_path, PATH_LEN);
 	if (ret <= 0) {
 		WARNING("Unable to copy the resolved path\n");
-		ret = -ENOMEM;
 	}
 	ret = ret <= 0 ? ret : 0;
 out_free:
@@ -123,15 +125,15 @@ int get_abs_path_user(const int dfd, const __user char *user_path, char *abs_pat
 		goto not_found;
 	}
 	// Allocate temporary buffer to store the path
-	// heap allocation because PATH_MAX could be too large for the stack
-	char *tmp_path = kzalloc(PATH_MAX * sizeof(char), GFP_KERNEL);
+	// heap allocation because PATH_LEN could be too large for the stack
+	char *tmp_path = kzalloc(PATH_LEN * sizeof(char), GFP_KERNEL);
 	if (!tmp_path) {
 		WARNING("Unable to allocate memory for the path\n");
 		ret = -ENOMEM;
 		goto out_path_put;
 	}
 	// Convert to a string
-	char *resolved_path = d_path(&path_struct, tmp_path, PATH_MAX);
+	char *resolved_path = d_path(&path_struct, tmp_path, PATH_LEN);
 	if (IS_ERR(resolved_path)) {
 		ret = -ENOENT;
 		goto out_free;
@@ -140,7 +142,7 @@ int get_abs_path_user(const int dfd, const __user char *user_path, char *abs_pat
 	*(resolved_path + strlen(resolved_path)) = '\0';
 	//resolved_path = krealloc(resolved_path, strlen(resolved_path) + 1, GFP_KERNEL);
 	// Copy the resolved absolute path into the output buffer
-	ret = (int)strscpy(abs_path, resolved_path, PATH_MAX);
+	ret = (int)strscpy(abs_path, resolved_path, PATH_LEN);
 	//kfree(resolved_path);
 	if (ret <= 0) {
 		WARNING("Unable to copy the resolved path\n");
@@ -158,44 +160,50 @@ not_found:
 
 int get_dir_path(const char *path, char *dir_path) {
 	int ret = 0;
-	char *tmp_path = NULL;
+	char *tmp_path = NULL, *last_sep = NULL;
 
-	if (unlikely(path == NULL)) {
+	if (unlikely(path == NULL) || unlikely(dir_path == NULL)) {
 		WARNING("Path is NULL\n");
 		ret = -EINVAL;
 		goto out;
 	}
+	const size_t path_len = strlen(path);
+	if(path_len == 0) {
+#ifdef
+		WARNING("Source Path is empty, fallback to cwd");
+#endif
+		goto empty_path;
+	}
 
 	// Copy the path to a temporary buffer
-	tmp_path = kzalloc(PATH_MAX * sizeof(char), GFP_KERNEL);
+	tmp_path = kzalloc(path_len * sizeof(char), GFP_KERNEL);
 	if (unlikely(tmp_path == NULL)) {
 		WARNING("Unable to allocate memory for the path\n");
 		ret = -ENOMEM;
 		goto out;
 	}
-	ret = (int)strscpy(tmp_path, path, PATH_MAX);
+	ret = (int)strscpy(tmp_path, path, PATH_LEN);
 	if (ret <= 0) {
 		WARNING("Unable to copy the path\n");
 		ret = -ENOMEM;
 		goto out_free;
 	}
-	// reduce memory overhead by reallocating the buffer
-	tmp_path = krealloc(tmp_path, strlen(tmp_path) + 1, GFP_KERNEL);
+
 	/* Find the last occurrence of the directory separator:
 	 * We could have three cases:
 	 * 1. path = "/path/to/dir/file" ->  we need to find the last occurrence of the separator
 	 * 2. path = "dir/file" -> we need to find the first occurrence of the separator
 	 * 3. path = "file" -> we need to return the current directory
 	 */
-	const char *last_sep = strrchr(tmp_path, '/');
-
-	if (last_sep) {
+	last_sep = strrchr(tmp_path, '/');
+empty_path:
+	if (last_sep != NULL) {
 		// calculate the length +1 so that the copy include the null-terminator
-		const size_t len = last_sep - tmp_path +1;
+		const size_t len = last_sep - tmp_path;
 		// null-terminate the temp path to the last sep
 		*(tmp_path + len) = '\0';
 		// copy
-		ret = (int)strscpy(dir_path, tmp_path, PATH_MAX);
+		ret = (int)strscpy(dir_path, tmp_path, PATH_LEN);
 		if (ret <= 0) {
 			WARNING("Unable to copy the path\n");
 			goto out_free;
@@ -203,7 +211,7 @@ int get_dir_path(const char *path, char *dir_path) {
 	} else {
 		// If no separator is found, return the current directory
 		const char * cwd = get_cwd();
-		ret = (int)strscpy(dir_path, cwd, PATH_MAX);
+		ret = (int)strscpy(dir_path, cwd, PATH_LEN);
 		if (ret <= 0) {
 			WARNING("Unable to copy the path\n");
 			goto out_free;
@@ -223,22 +231,37 @@ char *get_cwd(void) {
 	struct path pwd_path;
 	get_fs_pwd(task->fs, &pwd_path);
 	// Get the path from the dentry, recursively from the end to the root
-	char *pwd = kzalloc(PATH_MAX * sizeof(char), GFP_KERNEL);
+	char *pwd = kzalloc(PATH_LEN * sizeof(char), GFP_KERNEL);
 	if (unlikely(pwd == NULL)) {
 		WARNING("Unable to allocate memory for the path\n");
 		return NULL;
 	}
-	char *pwd_path_str = dentry_path_raw(pwd_path.dentry, pwd, PATH_MAX);
+	char *pwd_path_str = dentry_path_raw(pwd_path.dentry, pwd, PATH_LEN);
 	if (IS_ERR(pwd_path_str)) {
 		WARNING("Unable to get the path\n");
 		kfree(pwd);
 		return NULL;
 	}
+	char * ret_pwd = kzalloc((strlen(pwd_path_str)+1)*sizeof(char), GFP_KERNEL);
+	if(ret_pwd == NULL) {
+		WARNING("Unable to allocate memory for the returned cwd");
+		return NULL;
+	}
+	if(strscpy(ret_pwd, pwd_path_str, strlen(pwd_path_str)+1) <= 0) {
+		WARNING("Unable to copy cwd path");
+		return NULL;
+	}
 	// Release the path
 	path_put(&pwd_path);
 	kfree(pwd);
-	pwd_path_str = krealloc(pwd_path_str, strlen(pwd_path_str) + 1, GFP_KERNEL);
-	return pwd_path_str;
+	//char * r_pwd_path_str = krealloc(pwd_path_str, strlen(pwd_path_str) + 1, GFP_KERNEL);
+	// if(!r_pwd_path_str) {
+	// 	WARNING("Unable to reallocate the path\n");
+	// 	r_pwd_path_str = NULL;
+	// }
+	// kfree(pwd_path_str);
+	// pwd_path_str = r_pwd_path_str;
+	return ret_pwd;
 }
 
 bool is_dir(const char *path) {

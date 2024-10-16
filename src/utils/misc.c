@@ -235,7 +235,9 @@ hash_init_out:
 extern u8 pwd_salt[]; // this changes at every module load, so we need to declare it as extern
 inline bool verify_pwd(const char *input_str) {
 	// Ensure the input string is not NULL
-	INFO("Verifying the password");
+#ifdef DEBUG
+	INFO("Verifying the password\n");
+#endif
 	if (IS_ERR_OR_NULL(input_str)) {
 		WARNING("Input string is NULL");
 		return false;

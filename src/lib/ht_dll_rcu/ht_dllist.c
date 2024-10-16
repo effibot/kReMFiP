@@ -151,11 +151,10 @@ int ht_insert_node(ht_t *ht, node_t *node) {
 	// release the lock and synchronize the RCU
 	spin_unlock(&ht->lock[bkt]);
 	synchronize_rcu();
-//#ifdef DEBUG
+#ifdef DEBUG
 	INFO("Data inserted in the hash table\n");
+#endif
 	ht_print(ht);
-//#endif
-
 	return 0;
 }
 
@@ -241,6 +240,7 @@ int ht_delete_node(ht_t *ht, const uint64_t key) {
 #ifdef DEBUG
 	INFO("Data deleted (lazily) from the hash table\n");
 #endif
+	ht_print(ht);
 	return 0;
 }
 

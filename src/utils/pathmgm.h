@@ -12,7 +12,7 @@
 #include <linux/types.h>
 
 // Define a vector of invalid system paths
-#define INVALID_PATHS_NUM 6
+#define INVALID_PATHS_NUM 27
 
 // Define a keyword for path not found
 #define PATH_NOT_FOUND "Path not found"

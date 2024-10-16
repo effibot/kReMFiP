@@ -139,11 +139,20 @@ inline int rm_reconfigure(const path_op_t __user *op, const char __user *path) {
 	// This was previously done with path_exists but if we can't get an absolute path
 	// we assume that it doesn't exist
 	char *abs_path = kzalloc(PATH_MAX, GFP_KERNEL);
-	if (get_abs_path(kpath, abs_path) < 0) {
-		WARNING("The requested path does not exist\n");
-		ret = -ENOENT;
+	const int err_abs = get_abs_path(kpath, abs_path);
+	if (err_abs != 0) {
+		WARNING("Unable to infer absolute path\n");
+		ret = err_abs;
 		goto path_out;
 	}
+	// reallocate abs_path to the correct size to avoid large memory allocation
+	char *tmp = krealloc(abs_path, strlen(abs_path) + 1, GFP_KERNEL);
+	if (tmp == NULL) {
+		WARNING("Unable to reallocate memory for the path\n");
+		ret = -ENOMEM;
+		goto path_out;
+	}
+	abs_path = tmp;
 	// Check if the path is valid -> It must exist in the filesystem
 	if (!is_valid_path(abs_path)) {
 		WARNING("The requested path not valid for the monitor\n");
@@ -228,7 +237,9 @@ inline int rm_pwd_check(const char __user *pwd) {
 #endif
 	// Check if the password is valid
 	if (strlen(kpwd) >= RM_PWD_MIN_LEN && strlen(kpwd) <= RM_PWD_MAX_LEN && verify_pwd(kpwd)) {
+#ifdef DEBUG
 		printk(KERN_CONT "The password is valid\n");
+#endif
 	} else {
 		WARNING("The password is not valid\n");
 		ret = -EINVAL;

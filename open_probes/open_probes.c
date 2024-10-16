@@ -11,34 +11,36 @@
 
 #define MODNAME "open_probes"
 
-#define INVALID_PATHS_NUM 24
+#define INVALID_PATHS_NUM 26
 static const char *invalid_paths[INVALID_PATHS_NUM] = {
 	"/bin", "/boot", "/cdrom", "/dev", "/etc", "/lib", "/lib64", "/mnt", "/opt", "/proc",
 	"/root", "/run", "/sbin", "/snap", "/srv", "/swapfile", "/sys", "/usr", "/var", "/tmp",
 	"/home/effi/.cache","/home/effi/.java", "/home/effi/.Xauthority", ".git",
+	"/home/effi/.local", "/home/effi/.config"
+
 
 };
 #define INFO(fmt, ...)                                                                \
-printk(KERN_INFO "[%s::%s::%s::%d]: " fmt, MODNAME, __FILE__, __func__, __LINE__, \
-##__VA_ARGS__);
+	printk(KERN_INFO "[%s::%s::%s::%d]: " fmt, MODNAME, __FILE__, __func__, __LINE__, \
+	       ## __VA_ARGS__);
 #define WARNING(fmt, ...)                                                                \
-printk(KERN_WARNING "[%s::%s::%s::%d]: " fmt, MODNAME, __FILE__, __func__, __LINE__, \
-##__VA_ARGS__);
+	printk(KERN_WARNING "[%s::%s::%s::%d]: " fmt, MODNAME, __FILE__, __func__, __LINE__, \
+	       ## __VA_ARGS__);
 // Declaration of the is_protected function (you'll need to implement it)
 extern int is_protected(const char *path){
-	if(strcmp(path,"/home/effi/file0.txt") == 0){
+	if(strcmp(path,"/home/effi/file0.txt") == 0) {
 		pr_info("%s is protected", path);
-        return 1;
-    }
-	if(strcmp(path,"/home/effi/file1.txt") == 0){
+		return 1;
+	}
+	if(strcmp(path,"/home/effi/file1.txt") == 0) {
 		pr_info("%s is protected", path);
-        return 1;
-    }
-	if(strcmp(path,"/home/effi/Downloads") == 0){
+		return 1;
+	}
+	if(strcmp(path,"/home/effi/Downloads") == 0) {
 		pr_info("%s is protected", path);
-        return 1;
-    }
-	if(strcmp(path, "/home/effi/testdir") == 0){
+		return 1;
+	}
+	if(strcmp(path, "/home/effi/testdir") == 0) {
 		pr_info("%s is protected", path);
 		return 1;
 	}
@@ -84,7 +86,7 @@ char *get_cwd(void){
 
 	full_path = dentry_path_raw(abs_path.dentry, buf, PATH_MAX);
 	full_path = krealloc(full_path, strlen(full_path) + 1, GFP_KERNEL);
-	if(IS_ERR(full_path)){
+	if(IS_ERR(full_path)) {
 		kfree(buf);
 		return "";
 	}
@@ -191,10 +193,10 @@ int get_dir_path(const char *path, char *dir_path) {
 		}
 	}
 	ret = 0;
-	out_free:
-		kfree(tmp_path);
-	out:
-		return ret;
+out_free:
+	kfree(tmp_path);
+out:
+	return ret;
 }
 //
 //
@@ -260,11 +262,11 @@ const char *reg_external_file = "/home/effi/file0.txt";
 const char *external_dir = "/home/effi/file0.txt";
 const char *re_external_dir_file = "/home/effi/test_dir/test";
 
-static const char *test_paths[6] = { 
-		"int_file.txt", "int_dir", "int_dir/int_int_file", 
-		"/home/effi/file0.txt", "/home/effi/file0.txt", 
-		"/home/effi/test_dir/test"
-	};
+static const char *test_paths[6] = {
+	"int_file.txt", "int_dir", "int_dir/int_int_file",
+	"/home/effi/file0.txt", "/home/effi/file0.txt",
+	"/home/effi/test_dir/test"
+};
 static int pre_do_filp_open(struct kprobe *kp, struct pt_regs *regs) {
 	struct filename *name =
 		(struct filename *)regs->si; // 2nd argument: filename (struct filename pointer)
@@ -272,6 +274,7 @@ static int pre_do_filp_open(struct kprobe *kp, struct pt_regs *regs) {
 		(struct open_flags *)regs->dx; // 3rd argument: open_flags (struct open_flags pointer)
 
 	int flags = open_flags->open_flag; // Open flags
+	if (!(flags & O_RDWR) && !(flags & O_WRONLY) && !(flags & (O_CREAT | __O_TMPFILE | O_EXCL))) return 0;
 	umode_t mode = open_flags->mode; // Open mode
 	const char * pathname = name->name;
 	if (unlikely(pathname == NULL)) {
@@ -281,67 +284,77 @@ static int pre_do_filp_open(struct kprobe *kp, struct pt_regs *regs) {
 	char * abs_path = kzalloc(PATH_MAX * sizeof(char), GFP_KERNEL);
 	if(IS_ERR(abs_path)) return 0;
 	// check if the path belongs to a list to avoid excessive logs
-	
-	get_abs_path(pathname, abs_path);
-	int check2 = strcmp(name->name, abs_path) == 0; 
+
+	int err_abs = get_abs_path(pathname, abs_path);
+	if(!is_valid_path(pathname)) {
+		return 0;
+	} else {
+		INFO("absolute path is %s", abs_path);
+		if(strcmp(abs_path, "") == 0) {
+			pr_err("Unable to resolve the path, %d\n", err_abs);
+			return 0;
+		}
+	}
+	int check2 = strcmp(name->name, abs_path) == 0;
 	for (int i = 0; i < 5; i++) {
 		int check1 = strcmp(test_paths[i], name->name) == 0;
-		if (check1 || check2) {
+		if (check1) {
 			pr_info("Path %s is in the test paths\n", name->name);
-			INFO("absolute path is %s", abs_path);
+
 			INFO("File %s is being opened with flags %d and mode %d\n", name->name, flags, mode);
-	// find used flags
-	if(flags & O_CREAT){
-		pr_info("File %s is being created\n", name->name);
-	}
-	if(flags & O_WRONLY){
-		pr_info("File %s is being opened for writing\n", name->name);
-	}
-	if(flags & O_RDWR){
-		pr_info("File %s is being opened for reading and writing\n", name->name);
-	}
-	if(flags & O_TRUNC){
-		pr_info("File %s is being truncated\n", name->name);
-	}
-	if(flags & O_APPEND){
-		pr_info("File %s is being opened for appending\n", name->name);
-	}
-	if(flags & O_EXCL){
-		pr_info("File %s is being opened exclusively\n", name->name);
-	}
-	if(flags & O_NONBLOCK){
-		pr_info("File %s is being opened in non-blocking mode\n", name->name);
-	}
-	if(flags & O_SYNC){
-		pr_info("File %s is being opened in synchronous mode\n", name->name);
-	}
-	if(flags & O_DIRECT){
-		pr_info("File %s is being opened in direct mode\n", name->name);
-	}
-	if(flags & O_NOATIME){
-		pr_info("File %s is being opened with no access time\n", name->name);
-	}
-	if(flags & O_NOCTTY){
-		pr_info("File %s is being opened with no controlling terminal\n", name->name);
-	}
-	if(flags & O_PATH){
-		pr_info("File %s is being opened as a path\n", name->name);
-	}
-	if(flags & O_TMPFILE){
-		pr_info("File %s is being opened as a temporary file\n", name->name);
-	}
-	if(flags & O_CLOEXEC){
-		pr_info("File %s is being opened with close-on-exec flag\n", name->name);
-	}
-	if(flags & O_DIRECTORY){
-		pr_info("File %s is being opened as a directory\n", name->name);
-	}
-	if(flags & O_NOFOLLOW){
-		pr_info("File %s is being opened with no follow flag\n", name->name);
-	}
-	if(flags & O_LARGEFILE){
-		pr_info("File %s is being opened as a large file\n", name->name);
-	}
+			// find used flags
+			if(flags & O_CREAT) {
+				pr_info("File %s is being created\n", name->name);
+			}
+			if(flags & O_WRONLY) {
+				pr_info("File %s is being opened for writing\n", name->name);
+			}
+			if(flags & O_RDWR) {
+				pr_info("File %s is being opened for reading and writing\n", name->name);
+			}
+			if(flags & O_TRUNC) {
+				pr_info("File %s is being truncated\n", name->name);
+			}
+			if(flags & O_APPEND) {
+				pr_info("File %s is being opened for appending\n", name->name);
+			}
+			if(flags & O_EXCL) {
+				pr_info("File %s is being opened exclusively\n", name->name);
+			}
+			if(flags & O_NONBLOCK) {
+				pr_info("File %s is being opened in non-blocking mode\n", name->name);
+			}
+			if(flags & O_SYNC) {
+				pr_info("File %s is being opened in synchronous mode\n", name->name);
+			}
+			if(flags & O_DIRECT) {
+				pr_info("File %s is being opened in direct mode\n", name->name);
+			}
+			if(flags & O_NOATIME) {
+				pr_info("File %s is being opened with no access time\n", name->name);
+			}
+			if(flags & O_NOCTTY) {
+				pr_info("File %s is being opened with no controlling terminal\n", name->name);
+			}
+			if(flags & O_PATH) {
+				pr_info("File %s is being opened as a path\n", name->name);
+			}
+			if(flags & O_TMPFILE) {
+				pr_info("File %s is being opened as a temporary file\n", name->name);
+			}
+			if(flags & O_CLOEXEC) {
+				pr_info("File %s is being opened with close-on-exec flag\n", name->name);
+			}
+			if(flags & O_DIRECTORY) {
+				pr_info("File %s is being opened as a directory\n", name->name);
+			}
+			if(flags & O_NOFOLLOW) {
+				pr_info("File %s is being opened with no follow flag\n", name->name);
+			}
+			if(flags & O_LARGEFILE) {
+				pr_info("File %s is being opened as a large file\n", name->name);
+			}
+
 		}
 
 	}
@@ -350,8 +363,8 @@ static int pre_do_filp_open(struct kprobe *kp, struct pt_regs *regs) {
 
 // Kprobe definition
 static struct kprobe kp = {
-    .symbol_name = "do_filp_open",  // Name of the function to probe
-    .pre_handler = pre_do_filp_open, // Attach our pre-handler
+	.symbol_name = "do_filp_open", // Name of the function to probe
+	.pre_handler = pre_do_filp_open, // Attach our pre-handler
 };
 
 
@@ -373,13 +386,13 @@ static int test_path(const char *path) {
 // Module initialization
 static int __init kprobe_init(void)
 {
-    int ret;
+	int ret;
 
-    ret = register_kprobe(&kp); // Register the kprobe
-    if (ret < 0) {
-        printk(KERN_ERR "register_kprobe failed, returned %d\n", ret);
-        return ret;
-    }
+	ret = register_kprobe(&kp); // Register the kprobe
+	if (ret < 0) {
+		printk(KERN_ERR "register_kprobe failed, returned %d\n", ret);
+		return ret;
+	}
 
 	// test absolute path
 	//pr_info("Testing absolute path resolving\n");
@@ -393,9 +406,9 @@ static int __init kprobe_init(void)
 	//	pr_err("Unable to allocate memory for the absolute path\n");
 	//	return -ENOMEM;
 	//}
-	//char *test_paths[5] = { 
-	//	reg_internal_file, internal_dir, 
-	//	reg_external_file, external_dir, 
+	//char *test_paths[5] = {
+	//	reg_internal_file, internal_dir,
+	//	reg_external_file, external_dir,
 	//	re_external_dir_file
 	//};
 //
@@ -415,16 +428,16 @@ static int __init kprobe_init(void)
 	//}
 	//kfree(abs_path);
 	//kfree(parent_path);
-    printk(KERN_INFO "Kprobe registered for do_filp_open\n");
+	printk(KERN_INFO "Kprobe registered for do_filp_open\n");
 
-    return 0;
+	return 0;
 }
 
 // Module exit
 static void __exit kprobe_exit(void)
 {
-    unregister_kprobe(&kp); // Unregister the kprobe
-    printk(KERN_INFO "Kprobe unregistered\n");
+	unregister_kprobe(&kp); // Unregister the kprobe
+	printk(KERN_INFO "Kprobe unregistered\n");
 }
 
 module_init(kprobe_init);
@@ -433,5 +446,3 @@ module_exit(kprobe_exit);
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Your Name");
 MODULE_DESCRIPTION("Kprobe to detect open-on-write and creation operations with parent directory protection");
-
-
