@@ -368,17 +368,19 @@ int rm_open_pre_handler(struct kprobe *ri, struct pt_regs *regs) {
 reject:
 	// If the file is protected, change the open flags to read-only (O_RDONLY)
 	if (_file) {
-		flags &= ~(O_WRONLY | O_RDWR);
-		flags |= O_RDONLY;
-		((struct open_flags *)regs->dx)->open_flag = flags;
+		// flags &= ~(O_WRONLY | O_RDWR);
+		// flags |= O_RDONLY;
+		// ((struct open_flags *)regs->dx)->open_flag = flags;
+		INFO("Shoudl change flags for file");
 	} else if (_dir) {
-		// if the directory is protected don't allow creations
-		if (flags & O_CREAT)
-			regs->si = (unsigned long)NULL;
-		// if the directory is protected, change the open flags to read-only (O_RDONLY)
-		flags &= ~(O_WRONLY | O_RDWR | O_CREAT);
-		flags |= O_RDONLY;
-		((struct open_flags *)regs->dx)->open_flag = flags;
+		// // if the directory is protected don't allow creations
+		// if (flags & O_CREAT)
+		// 	regs->si = (unsigned long)NULL;
+		// // if the directory is protected, change the open flags to read-only (O_RDONLY)
+		// flags &= ~(O_WRONLY | O_RDWR | O_CREAT);
+		// flags |= O_RDONLY;
+		// ((struct open_flags *)regs->dx)->open_flag = flags;
+		INFO("Shoudl change flags for dir");
 	}
 out:
 	if (path_buf)
