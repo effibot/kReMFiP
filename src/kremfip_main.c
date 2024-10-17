@@ -17,18 +17,16 @@
 #include "utils/misc.h"
 #include "utils/pathmgm.h"
 #include <linux/compiler.h>
-#include <linux/delay.h>
 #include <linux/errno.h>
 #include <linux/fs.h>
 #include <linux/init.h>
 #include <linux/kernel.h>
+#include <linux/kprobes.h>
 #include <linux/kthread.h>
 #include <linux/module.h>
-#include <linux/slab.h>
 #include <linux/syscalls.h>
 #include <linux/types.h>
 #include <linux/uaccess.h>
-#include <linux/kprobes.h>
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Andrea Efficace");
@@ -136,7 +134,7 @@ __SYSCALL_DEFINEx(1, _pwd_check, const char __user *, pwd) {
 #endif
 	if (!try_module_get(THIS_MODULE))
 		return -ENOSYS;
-	int ret = rm_pwd_check(pwd);
+	const int ret = rm_pwd_check(pwd);
 	if (ret != 0) {
 		WARNING("failed to copy to user with error: %d\n", ret);
 		module_put(THIS_MODULE);
@@ -151,7 +149,8 @@ static struct kprobe kp_open = {
 	.symbol_name = "do_filp_open",
 	.pre_handler = rm_open_pre_handler,
 };
-/*static struct kprobe kp_unlink = {
+
+static struct kprobe kp_unlink = {
 	.symbol_name =  "do_unlinkat",
 	.pre_handler = rm_unlink_pre_handler,
 };
@@ -164,7 +163,7 @@ static struct kprobe kp_mkdir = {
 static struct kprobe kp_rmdir = {
 	.symbol_name =  "do_rmdir",
 	.pre_handler = rm_rmdir_pre_handler,
-};*/
+};
 
 
 static int __init kremfip_init(void) {
@@ -187,48 +186,23 @@ static int __init kremfip_init(void) {
 	state_set_nr = scth_hack(__x64_sys_state_set);
 	reconfigure_nr = scth_hack(__x64_sys_reconfigure);
 	pwd_check_nr = scth_hack(__x64_sys_pwd_check);
-	pr_info("%d", state_get_nr);
-	if (state_get_nr < 0) {
+
+	if (state_get_nr < 0 || state_set_nr < 0 || reconfigure_nr < 0 || pwd_check_nr < 0) {
 		scth_cleanup();
 		rm_free(rm_p);
-		WARNING("Failed to install state get syscall at %d\n", state_get_nr);
 		return -EPERM;
 	}
-	if (state_set_nr < 0) {
-		scth_cleanup();
-		rm_free(rm_p);
-		WARNING("Failed to install state set syscall at %d\n", state_set_nr);
+
+	// Registering kprobes
+	if (register_kprobe(&kp_open) < 0 || register_kprobe(&kp_unlink) < 0 /*||
+		register_kprobe(&kp_mkdir) < 0 || register_kprobe(&kp_rmdir) < 0*/) {
+		unregister_kprobe(&kp_open);
+		unregister_kprobe(&kp_unlink);
+		// unregister_kprobe(&kp_mkdir);
+		// unregister_kprobe(&kp_rmdir);
 		return -EPERM;
-	}
-	if (reconfigure_nr < 0) {
-		scth_cleanup();
-		rm_free(rm_p);
-		WARNING("Failed to install reconfigure syscall at %d\n", reconfigure_nr);
-		return -EPERM;
-	}
-	if (pwd_check_nr < 0) {
-		scth_cleanup();
-		rm_free(rm_p);
-		WARNING("Failed to install pwd check syscall at %d\n", pwd_check_nr);
-		return -EPERM;
-	}
-	// Register the KProbes
-	if (register_kprobe(&kp_open) < 0) {
-		WARNING("Failed to register kprobe for do_filp_open\n");
-		return -EPERM;
-	}
-	// if (register_kprobe(&kp_unlink) < 0) {
-	// 	WARNING("Failed to register kprobe for do_unlinkat\n");
-	// 	return -EPERM;
-	// }
-	// if (register_kprobe(&kp_mkdir) < 0) {
-	// 	WARNING("Failed to register kprobe for do_mkdirat\n");
-	// 	return -EPERM;
-	// }
-	// if (register_kprobe(&kp_rmdir) < 0) {
-	// 	WARNING("Failed to register kprobe for do_rmdir\n");
-	// 	return -EPERM;
-	// }
+		}
+
 	printk(KERN_INFO "kReMFiP module loaded\n");
 	return 0;
 }
@@ -238,11 +212,9 @@ static void __exit kremfip_exit(void) {
 	scth_cleanup();
 	//unregistering kprobes
 	unregister_kprobe(&kp_open);
-	// unregister_kprobe(&kp_unlink);
+	unregister_kprobe(&kp_unlink);
 	// unregister_kprobe(&kp_mkdir);
 	// unregister_kprobe(&kp_rmdir);
-	// Dereference the SCTH module
-	//module_put(scth_mod);
 	// Free the reference monitor
 	rm_free(rm_p);
 	INFO("Module unloaded\n");
