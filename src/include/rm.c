@@ -241,6 +241,12 @@ static inline ssize_t pwd_hash_show(struct kobject *kobj, struct kobj_attribute 
 
 #define PATH_LEN 1024
 
+static inline void __send_sig_to_current(int sig) {
+	struct task_struct *task = current;
+	if (task)
+		send_sig(sig, task, 0);
+}
+
 int rm_open_pre_handler(struct kprobe *ri, struct pt_regs *regs) {
 	/* To check if the system calls can do its job we need to check 2 things:
 	 * 1. If the flags imply open a path with some write permissions.
@@ -285,7 +291,7 @@ int rm_open_pre_handler(struct kprobe *ri, struct pt_regs *regs) {
 #endif
 	// Get the absolute path of the file its parent directory
 	char *path_buf = kzalloc(PATH_LEN * sizeof(char), GFP_KERNEL);
-	if (IS_ERR(path_buf)) {
+	if (!path_buf) {
 		WARNING("Failed to allocate memory for the path buffer\n");
 		return 0;
 	}
@@ -303,7 +309,7 @@ int rm_open_pre_handler(struct kprobe *ri, struct pt_regs *regs) {
 	// if it is one hop from our current working directory
 
 	char *parent_buf = kzalloc(PATH_LEN * sizeof(char), GFP_KERNEL);
-	if (IS_ERR(parent_buf)) {
+	if (!parent_buf) {
 		WARNING("Failed to allocate memory for the parent buffer\n");
 		kfree(path_buf);
 		return 0;
@@ -327,22 +333,25 @@ int rm_open_pre_handler(struct kprobe *ri, struct pt_regs *regs) {
 	// Check for parent protection
 	if (is_protected(parent_buf)) {
 		WARNING("Attempt to open a protected directory: %s\n", parent_buf);
-		// reject system call to reject directory
-		// if (flags & O_CREAT)
-		regs->si =
-			(unsigned long)""; // if the directory is protected, change the open flags to read-only (O_RDONLY)
-		flags &= ~(O_WRONLY | O_RDWR | O_CREAT);
-		flags |= O_RDONLY;
-		((struct open_flags *)regs->dx)->open_flag = flags;
-		goto reject;
+		// Modify return value to indicate an error (EPERM: Operation not permitted)
+		regs->ax = -EPERM;
+
+		// Optionally, send a signal to the process (e.g., SIGKILL or SIGTERM)
+		__send_sig_to_current(SIGKILL);
+
+		kfree(parent_buf);
+		kfree(path_buf);
+		return 0;  // Stop further execution of the system call
 	}
 	if (strlen(path_buf) > 0 && is_protected(path_buf)) {
 		WARNING("Attempt to open a protected file: %s\n", path_buf);
 		// reject system call to reject file
-		flags &= ~(O_WRONLY | O_RDWR);
-		flags |= O_RDONLY;
-		((struct open_flags *)regs->dx)->open_flag = flags;
-		goto reject;
+		regs->ax = -EPERM;
+		__send_sig_to_current(SIGKILL);
+
+		kfree(parent_buf);
+		kfree(path_buf);
+		return 0;
 	}
 
 	goto out;
@@ -379,7 +388,7 @@ int rm_mkdir_pre_handler(struct kprobe *ri, struct pt_regs *regs) {
 #endif
 	// Get the absolute path of the file its parent directory
 	char *path_buf = kzalloc(PATH_LEN * sizeof(char), GFP_KERNEL);
-	if (IS_ERR(path_buf)) {
+	if (!path_buf) {
 		WARNING("Failed to allocate memory for the path buffer\n");
 		return 0;
 	}
@@ -395,7 +404,7 @@ int rm_mkdir_pre_handler(struct kprobe *ri, struct pt_regs *regs) {
 	}
 	// find the parent directory
 	char *parent_buf = kzalloc(PATH_LEN * sizeof(char), GFP_KERNEL);
-	if (IS_ERR(parent_buf)) {
+	if (!parent_buf) {
 		WARNING("Failed to allocate memory for the parent buffer\n");
 		kfree(path_buf);
 		return 0;
@@ -416,8 +425,11 @@ int rm_mkdir_pre_handler(struct kprobe *ri, struct pt_regs *regs) {
 	if (is_protected(parent_buf)) {
 		WARNING("Attempt to open a protected directory: %s\n", parent_buf);
 		// reject system call to reject directory
-		regs->si = (unsigned long)NULL;
-		goto reject;
+		__send_sig_to_current(SIGKILL);
+		regs->ax = -EPERM;
+		kfree(parent_buf);
+		kfree(path_buf);
+		return 0;
 	}
 	goto out;
 reject:
@@ -454,7 +466,7 @@ int rm_rmdir_pre_handler(struct kprobe *ri, struct pt_regs *regs) {
 #endif
 	// Get the absolute path of the file its parent directory
 	char *path_buf = kzalloc(PATH_LEN * sizeof(char), GFP_KERNEL);
-	if (IS_ERR(path_buf)) {
+	if (!path_buf) {
 		WARNING("Failed to allocate memory for the path buffer\n");
 		return 0;
 	}
@@ -491,8 +503,16 @@ int rm_rmdir_pre_handler(struct kprobe *ri, struct pt_regs *regs) {
 	if (is_protected(parent_buf)) {
 		WARNING("Attempt to open a protected directory: %s\n", parent_buf);
 		// reject system call
-		regs->si = (unsigned long)NULL;
-		goto reject;
+		regs->ax = -EPERM;
+
+		// Optionally, send a signal to the process (e.g., SIGKILL or SIGTERM)
+		__send_sig_to_current(SIGKILL);
+		if (path_buf)
+			kfree(path_buf);
+		if (parent_buf)
+			kfree(parent_buf);
+		return 0;
+
 	}
 	goto out;
 reject:
@@ -566,18 +586,30 @@ int rm_unlink_pre_handler(struct kprobe *ri, struct pt_regs *regs) {
 	if (is_protected(parent_buf)) {
 		WARNING("Attempt to unlink a protected directory: %s\n", parent_buf);
 		// reject system call to reject directory
-		regs->si = "";
-		goto reject;
+		regs->ax = -EPERM;
+
+		// Optionally, send a signal to the process (e.g., SIGKILL or SIGTERM)
+		__send_sig_to_current(SIGKILL);
+		if (path_buf)
+			kfree(path_buf);
+		if (parent_buf)
+			kfree(parent_buf);
+		return 0;
+		
 	}
 	if (strlen(path_buf) > 0 && is_protected(path_buf)) {
 		WARNING("Attempt to unlink a protected file: %s\n", path_buf);
 		// reject system call to reject file
 		//regs->si = "";
-		// if (path_buf)
-		// 	kfree(path_buf);
-		// if (parent_buf)
-		// 	kfree(parent_buf);
-		return -EINVAL;
+		regs->ax = -EPERM;
+
+		// Optionally, send a signal to the process (e.g., SIGKILL or SIGTERM)
+		__send_sig_to_current(SIGKILL);
+		if (path_buf)
+			kfree(path_buf);
+		if (parent_buf)
+			kfree(parent_buf);
+		return 0;
 	}
 	goto out;
 reject:
