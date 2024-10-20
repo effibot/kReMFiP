@@ -145,21 +145,27 @@ __SYSCALL_DEFINEx(1, _pwd_check, const char __user *, pwd) {
 }
 
 // KProbes
+
+// extern struct file *do_filp_open(int dfd, struct filename *pathname, const struct open_flags *op);
 static struct kprobe kp_open = {
 	.symbol_name = "do_filp_open",
 	.pre_handler = rm_open_pre_handler,
 };
-
+// int do_unlinkat(int dfd, struct filename *name);
 static struct kprobe kp_unlink = {
 	.symbol_name =  "do_unlinkat",
 	.pre_handler = rm_unlink_pre_handler,
 };
 
+// at kernel 5.4 the signature is:
+// extern long do_mkdirat(int dfd, const char __user *pathname, umode_t mode);
 static struct kprobe kp_mkdir = {
 	.symbol_name =  "do_mkdirat",
 	.pre_handler = rm_mkdir_pre_handler,
 };
 
+// at kernel 5.4 the signature is:
+// extern long do_rmdir(int dfd, const char __user *pathname);
 static struct kprobe kp_rmdir = {
 	.symbol_name =  "do_rmdir",
 	.pre_handler = rm_rmdir_pre_handler,
@@ -193,15 +199,28 @@ static int __init kremfip_init(void) {
 		return -EPERM;
 	}
 
-	// Registering kprobes
-	if (register_kprobe(&kp_open) < 0 || register_kprobe(&kp_unlink) < 0 /*||
-		register_kprobe(&kp_mkdir) < 0 || register_kprobe(&kp_rmdir) < 0*/) {
-		unregister_kprobe(&kp_open);
-		unregister_kprobe(&kp_unlink);
-		// unregister_kprobe(&kp_mkdir);
-		// unregister_kprobe(&kp_rmdir);
+	int err3 = register_kprobe(&kp_rmdir);
+	printk("erro3: %d\n", err3);
+	if (err3 <0) {
+		scth_cleanup();
+		rm_free(rm_p);
 		return -EPERM;
-		}
+	}
+
+
+	//int err4 = register_kprobe(&kp_rmdir);
+	//printk("erro4: %d\n", err4);
+	// Registering kprobes
+	// if (register_kprobe(&kp_open) < 0 || register_kprobe(&kp_unlink) < 0 ||
+	// 	register_kprobe(&kp_mkdir) < 0 || register_kprobe(&kp_rmdir) < 0) {
+	// 	unregister_kprobe(&kp_open);
+	// 	unregister_kprobe(&kp_unlink);
+	// 	unregister_kprobe(&kp_mkdir);
+	// 	unregister_kprobe(&kp_rmdir);
+	// 	scth_cleanup();
+	// 	rm_free(rm_p);
+	// 	return -EPERM;
+	// 	}
 
 	printk(KERN_INFO "kReMFiP module loaded\n");
 	return 0;
@@ -211,10 +230,10 @@ static void __exit kremfip_exit(void) {
 	// Unregister the system call
 	scth_cleanup();
 	//unregistering kprobes
-	unregister_kprobe(&kp_open);
-	unregister_kprobe(&kp_unlink);
+	// unregister_kprobe(&kp_open);
+	// unregister_kprobe(&kp_unlink);
 	// unregister_kprobe(&kp_mkdir);
-	// unregister_kprobe(&kp_rmdir);
+	unregister_kprobe(&kp_rmdir);
 	// Free the reference monitor
 	rm_free(rm_p);
 	INFO("Module unloaded\n");

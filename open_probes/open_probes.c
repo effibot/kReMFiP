@@ -361,10 +361,24 @@ static int pre_do_filp_open(struct kprobe *kp, struct pt_regs *regs) {
 	return 0;
 }
 
+static int pre_mkdir(struct kprobe *kp, struct pt_regs *regs) {
+	const char __user *up = (const char __user *)regs->si; // 2nd argument: filename (struct filename pointer)
+	printk(KERN_INFO "Mkdir called\n");
+	char * p = kzalloc(PATH_MAX, GFP_KERNEL);
+	if(!p) return -ENOMEM;
+	size_t err = copy_from_user(p, up, strnlen_user(up, PAGE_SIZE));
+	if(err) {
+        printk(KERN_ERR "Unable to copy the path from the user space\n");
+        return -EFAULT;
+    }
+	printk(KERN_INFO "Name: %s\n", p);
+	return 0;
+}
+
 // Kprobe definition
 static struct kprobe kp = {
-	.symbol_name = "do_filp_open", // Name of the function to probe
-	.pre_handler = pre_do_filp_open, // Attach our pre-handler
+	.symbol_name = "do_mkdirat", // Name of the function to probe
+	.pre_handler = pre_mkdir, // Attach our pre-handler
 };
 
 

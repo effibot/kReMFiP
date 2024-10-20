@@ -228,13 +228,13 @@ f:
 static inline ssize_t pwd_hash_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf) {
 	// just copy the password hash to the buffer as a null-terminated string
 	char *str = kzalloc((RM_PWD_HASH_LEN * 2 + 1) * sizeof(char), GFP_KERNEL);
-	ssize_t error = hex_to_str(rm_pwd_hash, RM_PWD_HASH_LEN, str);
+	const ssize_t error = hex_to_str(rm_pwd_hash, RM_PWD_HASH_LEN, str);
 	if (error) {
 		WARNING("Failed to convert the password hash to a string");
 		kfree(str);
 		return error;
 	}
-	ssize_t byte_written = snprintf(buf, RM_PWD_HASH_LEN * 2 + 1, "%s", str);
+	const ssize_t byte_written = snprintf(buf, RM_PWD_HASH_LEN * 2 + 1, "%s", str);
 	kfree(str);
 	return byte_written;
 }
@@ -243,31 +243,34 @@ static inline ssize_t pwd_hash_show(struct kobject *kobj, struct kobj_attribute 
 
 static inline void __send_sig_to_current(int sig) {
 	struct task_struct *task = current;
-	if (task)
+	if (task) {
 		send_sig(sig, task, 0);
+	}
+	INFO("signal sent");
 }
 
+/** NOTE: on the do_filp_open syscall ----------------------------------
+ * To check if the system calls can do its job we need to check 2 things:
+ * 1. If the flags imply open a path with some write permissions.
+ * According to the current ABI, we have:
+ * -- rdi->arg0: int dfd
+ * -- rsi->arg1: struct filename *pathname
+ * -- rdx->arg2: struct open_flags *flags
+ * 2. If the path is present inside the hash table returns are 0 if error
+ * occurs to don't interfere with the syscall, and they are non-zero if
+ * memory problem occurs. Remember that at least the parent directory
+ * of the opened resource must exist or the kernel fails even if the O_CREAT flag is set.
+ * --------------------------------------------------------------------
+ */
+
 int rm_open_pre_handler(struct kprobe *ri, struct pt_regs *regs) {
-	/* To check if the system calls can do its job we need to check 2 things:
-	 * 1. If the flags imply open a path with some write permissions.
-	 * According to the current ABI, we have:
-	 * -- rdi->arg0: int dfd
-	 * -- rsi->arg1: struct filename *pathname
-	 * -- rdx->arg2: struct open_flags *flags
-	 * 2. If the path is present inside the hash table
-	 *
-	 * returns are 0 if error occurs to don't interfere with the syscall, and they are non-zero
-	 * if memory problem occurs.
-	 * Remember that at least the parent directory of the opened resource must exist or the
-	 * kernel fails even if the O_CREAT flag is set.
-	 */
 	// Extract the function arguments from the registers based on the x86_64 ABI
 	const struct filename *name =
 		(struct filename *)regs->si; // 2nd argument: filename (struct filename pointer)
 	struct open_flags *open_flags =
 		(struct open_flags *)regs->dx; // 3rd argument: open_flags (struct open_flags pointer)
 
-	int flags = open_flags->open_flag; // Open flags
+	const int flags = open_flags->open_flag; // Open flags
 	// Only proceed if the file is opened for writing or creating
 	if (!(flags & O_RDWR) && !(flags & O_WRONLY) && !(flags & (O_CREAT | __O_TMPFILE | O_EXCL)))
 		return 0;
@@ -301,9 +304,7 @@ int rm_open_pre_handler(struct kprobe *ri, struct pt_regs *regs) {
 	if (err_abs != 0 && err_abs != -ENOENT) {
 		// Something went wrong, log the error and return
 		WARNING("Failed to get the absolute path of %s with code %d\n", pathname, err_abs);
-		if (path_buf)
-			kfree(path_buf);
-		return 0;
+		goto out_abs;
 	}
 	// now we find the parent directory for the special case of opening a file which path
 	// if it is one hop from our current working directory
@@ -311,8 +312,7 @@ int rm_open_pre_handler(struct kprobe *ri, struct pt_regs *regs) {
 	char *parent_buf = kzalloc(PATH_LEN * sizeof(char), GFP_KERNEL);
 	if (!parent_buf) {
 		WARNING("Failed to allocate memory for the parent buffer\n");
-		kfree(path_buf);
-		return 0;
+		goto out_parent;
 	}
 
 	const int err_parent = get_dir_path(path_buf, parent_buf);
@@ -320,11 +320,7 @@ int rm_open_pre_handler(struct kprobe *ri, struct pt_regs *regs) {
 	// or if the parent directory does not exist
 	if (err_parent != 0 || !is_dir(parent_buf)) {
 		WARNING("Failed to get the parent directory of %s with code %d\n", pathname, err_parent);
-		if (parent_buf)
-			kfree(parent_buf);
-		if (path_buf)
-			kfree(path_buf);
-		return 0;
+		goto out_parent;
 	}
 
 #ifdef DEBUG
@@ -333,64 +329,55 @@ int rm_open_pre_handler(struct kprobe *ri, struct pt_regs *regs) {
 	// Check for parent protection
 	if (is_protected(parent_buf)) {
 		WARNING("Attempt to open a protected directory: %s\n", parent_buf);
-		// Modify return value to indicate an error (EPERM: Operation not permitted)
-		regs->ax = -EPERM;
-
-		// Optionally, send a signal to the process (e.g., SIGKILL or SIGTERM)
-		__send_sig_to_current(SIGKILL);
-
-		kfree(parent_buf);
-		kfree(path_buf);
-		return 0;  // Stop further execution of the system call
+		goto reject;
 	}
 	if (strlen(path_buf) > 0 && is_protected(path_buf)) {
 		WARNING("Attempt to open a protected file: %s\n", path_buf);
-		// reject system call to reject file
-		regs->ax = -EPERM;
-		__send_sig_to_current(SIGKILL);
-
-		kfree(parent_buf);
-		kfree(path_buf);
-		return 0;
 	}
-
-	goto out;
-reject:
-	//TODO register deferred work
-out:
-	if (path_buf)
-		kfree(path_buf);
-	if (parent_buf)
-		kfree(parent_buf);
+reject: // reject system call to reject file
+	// Set the return value to -EPERM to reject the system call
+	regs->ax = -EPERM;
+	// Send a signal to the current process to kill it
+	//__send_sig_to_current(SIGINT);
+out_parent:
+	kfree(parent_buf);
+out_abs:
+	kfree(path_buf);
 	return 0;
 }
 
 int rm_mkdir_pre_handler(struct kprobe *ri, struct pt_regs *regs) {
 	// Extract the function arguments from the registers based on the x86_64 ABI
-	const struct filename *name =
-		(struct filename *)regs->si; // 2nd argument: filename (struct filename pointer)
-
-	// Get the file path from the filename struct
-	const char *pathname = name->name;
+	const char __user *u_pathname = (const char __user *)regs->si; // 2nd argument:
+	if (u_pathname == NULL) {
+		return 0;
+	}
+	// map into kernel space
+	const char *pathname = map_user_buffer(u_pathname, strnlen_user(u_pathname, PAGE_SIZE)+1);
+	map_check(pathname) {
+		WARNING("failed to copy path from user\n");
+		goto out_user_error;
+	}
 	// If pathname is NULL, there's nothing to check, skip
 	if (!pathname) {
-		return 0;
+		goto out_user_error;
 	}
 
 	// Check if the path is valid and should be monitored
 	if (!is_valid_path(pathname)) {
-		return 0; // Skip if the path is not valid
+		goto out_user_error; // Skip if the path is not valid
 	}
-
+	INFO("path valid")
 #ifdef DEBUG
 	int dfd = (int)regs->di; // 1st argument: directory file descriptor
 	INFO("Probing mkdir with dfd %d for path %s\n", dfd, pathname);
 #endif
-	// Get the absolute path of the file its parent directory
+
+	// Get the absolute path of the file and its parent directory
 	char *path_buf = kzalloc(PATH_LEN * sizeof(char), GFP_KERNEL);
 	if (!path_buf) {
 		WARNING("Failed to allocate memory for the path buffer\n");
-		return 0;
+		goto out_user_error;
 	}
 
 	// resolve the path to its absolute form
@@ -398,16 +385,13 @@ int rm_mkdir_pre_handler(struct kprobe *ri, struct pt_regs *regs) {
 	if (err_abs != 0 && err_abs != -ENOENT) {
 		// Something went wrong, log the error and return
 		WARNING("Failed to get the absolute path of %s with code %d\n", pathname, err_abs);
-		if (path_buf)
-			kfree(path_buf);
-		return 0;
+		goto out_abs;
 	}
 	// find the parent directory
 	char *parent_buf = kzalloc(PATH_LEN * sizeof(char), GFP_KERNEL);
 	if (!parent_buf) {
 		WARNING("Failed to allocate memory for the parent buffer\n");
-		kfree(path_buf);
-		return 0;
+		goto out_parent;
 	}
 
 	const int err_parent = get_dir_path(path_buf, parent_buf);
@@ -415,60 +399,59 @@ int rm_mkdir_pre_handler(struct kprobe *ri, struct pt_regs *regs) {
 	// or if the parent directory does not exist
 	if (err_parent != 0 || !is_dir(parent_buf)) {
 		WARNING("Failed to get the parent directory of %s with code %d\n", pathname, err_parent);
-		if (parent_buf)
-			kfree(parent_buf);
-		if (path_buf)
-			kfree(path_buf);
-		return 0;
+		goto out_parent;
 	}
 	// Check for parent protection
 	if (is_protected(parent_buf)) {
-		WARNING("Attempt to open a protected directory: %s\n", parent_buf);
-		// reject system call to reject directory
-		__send_sig_to_current(SIGKILL);
-		regs->ax = -EPERM;
-		kfree(parent_buf);
-		kfree(path_buf);
-		return 0;
+		WARNING("Attempt to create a directory in a protected directory: %s\n", parent_buf);
 	}
-	goto out;
 reject:
-	//TODO register deferred work
-
-out:
-	if (path_buf)
-		kfree(path_buf);
-	if (parent_buf)
-		kfree(parent_buf);
-
+	// reject system call
+	regs->ax = -EPERM;
+	__send_sig_to_current(SIGINT);
+out_parent:
+	kfree(parent_buf);
+out_abs:
+	kfree(path_buf);
+out_user_error:
+	kfree(pathname);
 	return 0;
 }
-int rm_rmdir_pre_handler(struct kprobe *ri, struct pt_regs *regs) {
-	// Extract the function arguments from the registers based on the x86_64 ABI
-	const struct filename *name =
-		(struct filename *)regs->si; // 2nd argument: filename (struct filename pointer)
 
-	// Get the file path from the filename struct
-	const char *pathname = name->name;
+int rm_rmdir_pre_handler(struct kprobe *ri, struct pt_regs *regs) {
+		// Extract the function arguments from the registers based on the x86_64 ABI
+	const char __user *u_pathname = (const char __user *)regs->si; // 2nd argument:
+	if (u_pathname == NULL) {
+		return 0;
+	}
+
+	// map into kernel space
+	const char *pathname = map_user_buffer(u_pathname, strnlen_user(u_pathname, PAGE_SIZE)+1);
+	map_check(pathname) {
+		WARNING("failed to copy path from user\n");
+		goto out_user_error;
+	}
+
 	// If pathname is NULL, there's nothing to check, skip
 	if (!pathname) {
-		return 0;
+		goto out_user_error;
 	}
 
 	// Check if the path is valid and should be monitored
 	if (!is_valid_path(pathname)) {
-		return 0; // Skip if the path is not valid
+		goto out_user_error; // Skip if the path is not valid
 	}
 
 #ifdef DEBUG
 	int dfd = (int)regs->di; // 1st argument: directory file descriptor
 	INFO("Probing rmdir with dfd %d for path %s\n", dfd, pathname);
 #endif
+
 	// Get the absolute path of the file its parent directory
 	char *path_buf = kzalloc(PATH_LEN * sizeof(char), GFP_KERNEL);
 	if (!path_buf) {
 		WARNING("Failed to allocate memory for the path buffer\n");
-		return 0;
+		goto out_user_error;
 	}
 
 	// resolve the path to its absolute form
@@ -476,56 +459,46 @@ int rm_rmdir_pre_handler(struct kprobe *ri, struct pt_regs *regs) {
 	if (err_abs != 0 && err_abs != -ENOENT) {
 		// Something went wrong, log the error and return
 		WARNING("Failed to get the absolute path of %s with code %d\n", pathname, err_abs);
-		if (path_buf)
-			kfree(path_buf);
-		return 0;
+		goto out_abs;
 	}
+
 	// find the parent directory
 	char *parent_buf = kzalloc(PATH_LEN * sizeof(char), GFP_KERNEL);
-	if (IS_ERR(parent_buf)) {
+	if (!parent_buf) {
 		WARNING("Failed to allocate memory for the parent buffer\n");
-		kfree(path_buf);
-		return 0;
+		goto out_abs;
 	}
 
 	const int err_parent = get_dir_path(path_buf, parent_buf);
+
 	// Check if something went wrong when calculating the parent directory
 	// or if the parent directory does not exist
 	if (err_parent != 0 || !is_dir(parent_buf)) {
 		WARNING("Failed to get the parent directory of %s with code %d\n", pathname, err_parent);
-		if (parent_buf)
-			kfree(parent_buf);
-		if (path_buf)
-			kfree(path_buf);
-		return 0;
+		goto out_parent;
 	}
+
 	// Check for parent protection
 	if (is_protected(parent_buf)) {
-		WARNING("Attempt to open a protected directory: %s\n", parent_buf);
-		// reject system call
-		regs->ax = -EPERM;
-
-		// Optionally, send a signal to the process (e.g., SIGKILL or SIGTERM)
-		__send_sig_to_current(SIGKILL);
-		if (path_buf)
-			kfree(path_buf);
-		if (parent_buf)
-			kfree(parent_buf);
-		return 0;
-
+		WARNING("Attempt to remove a child in a protected directory: %s\n", parent_buf);
+		goto reject;
 	}
-	goto out;
+	if (strlen(path_buf) > 0 && is_protected(path_buf)) {
+		WARNING("Attempt to remove a protected directory: %s\n", path_buf);
+	}
 reject:
-	//TODO register deferred work
-
-out:
-	if (path_buf)
-		kfree(path_buf);
-	if (parent_buf)
-		kfree(parent_buf);
-
+	// reject system call
+	regs->ax = -EPERM;
+	__send_sig_to_current(SIGINT);
+out_parent:
+	kfree(parent_buf);
+out_abs:
+	kfree(path_buf);
+out_user_error:
+	kfree(pathname);
 	return 0;
 }
+
 int rm_unlink_pre_handler(struct kprobe *ri, struct pt_regs *regs) {
 	// Extract the function arguments from the registers based on the x86_64 ABI
 	const struct filename *name =
@@ -547,9 +520,10 @@ int rm_unlink_pre_handler(struct kprobe *ri, struct pt_regs *regs) {
 	int dfd = (int)regs->di; // 1st argument: directory file descriptor
 	INFO("Probing unlink with dfd %d for path %s\n", dfd, pathname);
 #endif
+
 	// Get the absolute path of the file its parent directory
 	char *path_buf = kzalloc(PATH_LEN * sizeof(char), GFP_KERNEL);
-	if (IS_ERR(path_buf)) {
+	if (!path_buf) {
 		WARNING("Failed to allocate memory for the path buffer\n");
 		return 0;
 	}
@@ -559,67 +533,41 @@ int rm_unlink_pre_handler(struct kprobe *ri, struct pt_regs *regs) {
 	if (err_abs != 0 && err_abs != -ENOENT) {
 		// Something went wrong, log the error and return
 		WARNING("Failed to get the absolute path of %s with code %d\n", pathname, err_abs);
-		if (path_buf)
-			kfree(path_buf);
-		return 0;
+		goto out_abs;
 	}
+
 	// now we find the parent directory
 	char *parent_buf = kzalloc(PATH_LEN * sizeof(char), GFP_KERNEL);
-	if (IS_ERR(parent_buf)) {
+	if (!parent_buf) {
 		WARNING("Failed to allocate memory for the parent buffer\n");
-		kfree(path_buf);
-		return 0;
+		goto out_abs;
 	}
 
 	const int err_parent = get_dir_path(path_buf, parent_buf);
+
 	// Check if something went wrong when calculating the parent directory
 	// or if the parent directory does not exist
 	if (err_parent != 0 || !is_dir(parent_buf)) {
 		WARNING("Failed to get the parent directory of %s with code %d\n", pathname, err_parent);
-		if (parent_buf)
-			kfree(parent_buf);
-		if (path_buf)
-			kfree(path_buf);
-		return 0;
+		goto out_parent;
 	}
+
 	// Check for parent protection
 	if (is_protected(parent_buf)) {
-		WARNING("Attempt to unlink a protected directory: %s\n", parent_buf);
-		// reject system call to reject directory
-		regs->ax = -EPERM;
-
-		// Optionally, send a signal to the process (e.g., SIGKILL or SIGTERM)
-		__send_sig_to_current(SIGKILL);
-		if (path_buf)
-			kfree(path_buf);
-		if (parent_buf)
-			kfree(parent_buf);
-		return 0;
-		
+		WARNING("Attempt to unlink a file from a protected directory: %s\n", parent_buf);
+		goto reject;
 	}
+
 	if (strlen(path_buf) > 0 && is_protected(path_buf)) {
 		WARNING("Attempt to unlink a protected file: %s\n", path_buf);
-		// reject system call to reject file
-		//regs->si = "";
-		regs->ax = -EPERM;
-
-		// Optionally, send a signal to the process (e.g., SIGKILL or SIGTERM)
-		__send_sig_to_current(SIGKILL);
-		if (path_buf)
-			kfree(path_buf);
-		if (parent_buf)
-			kfree(parent_buf);
-		return 0;
 	}
-	goto out;
+
 reject:
-	//TODO register deferred work
-
-out:
-	if (path_buf)
-		kfree(path_buf);
-	if (parent_buf)
-		kfree(parent_buf);
-
+	regs->ax = -EPERM;
+	__send_sig_to_current(SIGINT);
+out_parent:
+	kfree(parent_buf);
+out_abs:
+	kfree(path_buf);
 	return 0;
 }
