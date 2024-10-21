@@ -243,10 +243,7 @@ static inline ssize_t pwd_hash_show(struct kobject *kobj, struct kobj_attribute 
 
 static inline void __send_sig_to_current(int sig) {
 	struct task_struct *task = current;
-	if (task) {
-		send_sig(sig, task, 0);
-	}
-	INFO("signal sent");
+	send_sig(sig, task, 1);
 }
 
 /** NOTE: on the do_filp_open syscall ----------------------------------
@@ -270,7 +267,7 @@ int rm_open_pre_handler(struct kprobe *ri, struct pt_regs *regs) {
 	struct open_flags *open_flags =
 		(struct open_flags *)regs->dx; // 3rd argument: open_flags (struct open_flags pointer)
 
-	const int flags = open_flags->open_flag; // Open flags
+	int flags = open_flags->open_flag; // Open flags
 	// Only proceed if the file is opened for writing or creating
 	if (!(flags & O_RDWR) && !(flags & O_WRONLY) && !(flags & (O_CREAT | __O_TMPFILE | O_EXCL)))
 		return 0;
@@ -326,19 +323,21 @@ int rm_open_pre_handler(struct kprobe *ri, struct pt_regs *regs) {
 #ifdef DEBUG
 	INFO("\nFound Parent %s\nfor Resource %s", parent_buf, path_buf);
 #endif
+	
 	// Check for parent protection
-	if (is_protected(parent_buf)) {
-		WARNING("Attempt to open a protected directory: %s\n", parent_buf);
-		goto reject;
+	if (is_protected(parent_buf) || (strlen(path_buf) > 0 && is_protected(path_buf))) {
+		WARNING("Attempt to open a file (%s) in a protected directory: %s\n", pathname, parent_buf);
+		flags &= ~(O_WRONLY | O_RDWR | O_CREAT | O_EXCL | __O_TMPFILE | O_TRUNC | O_APPEND);
+		flags |= O_RDONLY;
+		open_flags->open_flag = flags;
+		// Send a signal to the current process to kill it
+		struct task_struct *task = current;
+		// if (task) {
+		send_sig(SIGINT, task, 1);
+		// }
+		INFO("signal sent");
 	}
-	if (strlen(path_buf) > 0 && is_protected(path_buf)) {
-		WARNING("Attempt to open a protected file: %s\n", path_buf);
-	}
-reject: // reject system call to reject file
-	// Set the return value to -EPERM to reject the system call
-	regs->ax = -EPERM;
-	// Send a signal to the current process to kill it
-	//__send_sig_to_current(SIGINT);
+
 out_parent:
 	kfree(parent_buf);
 out_abs:
@@ -402,13 +401,14 @@ int rm_mkdir_pre_handler(struct kprobe *ri, struct pt_regs *regs) {
 		goto out_parent;
 	}
 	// Check for parent protection
-	if (is_protected(parent_buf)) {
+	if (is_protected(parent_buf) || (strlen(path_buf) > 0 && is_protected(path_buf))) {
 		WARNING("Attempt to create a directory in a protected directory: %s\n", parent_buf);
+		// reject system call
+		// regs->ax = -EPERM;
+		// regs->si = (unsigned long)NULL;
+		__send_sig_to_current(SIGKILL);
 	}
-reject:
-	// reject system call
-	regs->ax = -EPERM;
-	__send_sig_to_current(SIGINT);
+
 out_parent:
 	kfree(parent_buf);
 out_abs:
@@ -479,17 +479,14 @@ int rm_rmdir_pre_handler(struct kprobe *ri, struct pt_regs *regs) {
 	}
 
 	// Check for parent protection
-	if (is_protected(parent_buf)) {
-		WARNING("Attempt to remove a child in a protected directory: %s\n", parent_buf);
-		goto reject;
+	if (is_protected(parent_buf) || (strlen(path_buf) > 0 && is_protected(path_buf))) {
+		WARNING("Attempt to remove a directory from a protected directory: %s\n", parent_buf);
+		// reject system call
+		// regs->ax = -EPERM;
+		// regs->si = (unsigned long)NULL;
+		__send_sig_to_current(SIGKILL);
 	}
-	if (strlen(path_buf) > 0 && is_protected(path_buf)) {
-		WARNING("Attempt to remove a protected directory: %s\n", path_buf);
-	}
-reject:
-	// reject system call
-	regs->ax = -EPERM;
-	__send_sig_to_current(SIGINT);
+
 out_parent:
 	kfree(parent_buf);
 out_abs:
@@ -553,18 +550,13 @@ int rm_unlink_pre_handler(struct kprobe *ri, struct pt_regs *regs) {
 	}
 
 	// Check for parent protection
-	if (is_protected(parent_buf)) {
-		WARNING("Attempt to unlink a file from a protected directory: %s\n", parent_buf);
-		goto reject;
+	if (is_protected(parent_buf) || (strlen(path_buf) > 0 && is_protected(path_buf))) {
+		WARNING("Attempt to remove a file (%s) from a protected directory: %s\n", pathname, parent_buf);
+		// reject system call
+		// regs->ax = -EPERM;
+		// regs->si = (unsigned long)NULL;
+		__send_sig_to_current(SIGKILL);
 	}
-
-	if (strlen(path_buf) > 0 && is_protected(path_buf)) {
-		WARNING("Attempt to unlink a protected file: %s\n", path_buf);
-	}
-
-reject:
-	regs->ax = -EPERM;
-	__send_sig_to_current(SIGINT);
 out_parent:
 	kfree(parent_buf);
 out_abs:

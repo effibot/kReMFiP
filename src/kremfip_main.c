@@ -46,6 +46,37 @@ MODULE_VERSION("1.0");
 #error "This module requires kernel in range [4.17.x, 5.4.x]"
 #endif
 
+// KProbes
+
+// extern struct file *do_filp_open(int dfd, struct filename *pathname, const struct open_flags *op);
+static struct kprobe kp_open = {
+	.symbol_name = "do_filp_open",
+	.pre_handler = rm_open_pre_handler,
+	.flags =  KPROBE_FLAG_DISABLED | KPROBE_FLAG_GONE
+};
+// int do_unlinkat(int dfd, struct filename *name);
+static struct kprobe kp_unlink = {
+	.symbol_name =  "do_unlinkat",
+	.pre_handler = rm_unlink_pre_handler,
+	.flags =  KPROBE_FLAG_DISABLED | KPROBE_FLAG_GONE
+};
+
+// at kernel 5.4 the signature is:
+// extern long do_mkdirat(int dfd, const char __user *pathname, umode_t mode);
+static struct kprobe kp_mkdir = {
+	.symbol_name =  "do_mkdirat",
+	.pre_handler = rm_mkdir_pre_handler,
+	.flags =  KPROBE_FLAG_DISABLED | KPROBE_FLAG_GONE
+};
+
+// at kernel 5.4 the signature is:
+// extern long do_rmdir(int dfd, const char __user *pathname);
+static struct kprobe kp_rmdir = {
+	.symbol_name =  "do_rmdir",
+	.pre_handler = rm_rmdir_pre_handler,
+	.flags =  KPROBE_FLAG_DISABLED | KPROBE_FLAG_GONE
+};
+
 /* Reference monitor pointer. */
 rm_t *rm_p = NULL;
 
@@ -59,15 +90,15 @@ __SYSCALL_DEFINEx(1, _state_get, state_t __user *, u_state) {
 #ifdef DEBUG
 	INFO("invoking __x64_sys_state_get\n");
 #endif
-	if (!try_module_get(THIS_MODULE))
-		return -ENOSYS;
+	// if (!try_module_get(THIS_MODULE))
+	// 	return -ENOSYS;
 	const int ret = rm_state_get(u_state);
 	if (ret != 0) {
 		WARNING("failed to copy to user\n");
-		module_put(THIS_MODULE);
+		// module_put(THIS_MODULE);
 		return -EFAULT;
 	}
-	module_put(THIS_MODULE);
+	// module_put(THIS_MODULE);
 	return ret;
 }
 
@@ -75,13 +106,13 @@ __SYSCALL_DEFINEx(1, _state_set, const state_t __user *, state) {
 #ifdef DEBUG
 	INFO("Invoking __x64_sys_state_set\n");
 #endif
-	if (!try_module_get(THIS_MODULE))
-		return -ENOSYS;
+	// if (!try_module_get(THIS_MODULE))
+	// 	return -ENOSYS;
 	// password is checked in user space, if we came here, we can trust the user
 	const uid_t old_euid = elevate_privileges();
 	if (get_euid() != 0) { // if this is not zero we have an error
 		WARNING("Failed to elevate the privileges\n");
-		module_put(THIS_MODULE);
+		// module_put(THIS_MODULE);
 		return old_euid;
 	}
 	// we are root now, change the state of the monitor.
@@ -94,10 +125,24 @@ __SYSCALL_DEFINEx(1, _state_set, const state_t __user *, state) {
 	const int priv_err = reset_privileges(old_euid);
 	if (priv_err != 0) {
 		WARNING("Failed to reset the privileges\n");
-		module_put(THIS_MODULE);
+		// module_put(THIS_MODULE);
 		return priv_err;
 	}
-	module_put(THIS_MODULE);
+	// if the state is REC_ON or ON, we have to enable the kprobes
+	if (get_state(rm_p) == REC_ON || get_state(rm_p) == ON) {
+		// enable the kprobes
+		enable_kprobe(&kp_open);
+		enable_kprobe(&kp_unlink);
+		enable_kprobe(&kp_mkdir);
+		enable_kprobe(&kp_rmdir);
+	} else {
+		// disable the kprobes
+		disable_kprobe(&kp_open);
+		disable_kprobe(&kp_unlink);
+		disable_kprobe(&kp_mkdir);
+		disable_kprobe(&kp_rmdir);
+	}
+	// module_put(THIS_MODULE);
 	return ret;
 }
 
@@ -105,12 +150,12 @@ __SYSCALL_DEFINEx(2, _reconfigure, const path_op_t __user *, op, const char __us
 #ifdef DEBUG
 	INFO("Invoking __x64_sys_reconfigure\n");
 #endif
-	if (!try_module_get(THIS_MODULE))
-		return -ENOSYS;
+	// if (!try_module_get(THIS_MODULE))
+	// 	return -ENOSYS;
 	const uid_t old_euid = elevate_privileges();
 	if (get_euid() != 0) { // if this is not zero we have an error
 		WARNING("Failed to elevate the privileges\n");
-		module_put(THIS_MODULE);
+		// module_put(THIS_MODULE);
 		return old_euid;
 	}
 	const int ret = rm_reconfigure(op, path);
@@ -121,10 +166,10 @@ __SYSCALL_DEFINEx(2, _reconfigure, const path_op_t __user *, op, const char __us
 	const int priv_err = reset_privileges(old_euid);
 	if (priv_err != 0) {
 		WARNING("Failed to reset the privileges\n");
-		module_put(THIS_MODULE);
+		// module_put(THIS_MODULE);
 		return priv_err;
 	}
-	module_put(THIS_MODULE);
+	// module_put(THIS_MODULE);
 	return ret;
 }
 
@@ -132,44 +177,19 @@ __SYSCALL_DEFINEx(1, _pwd_check, const char __user *, pwd) {
 #ifdef DEBUG
 	INFO("Invoking __x64_sys_pwd_check\n");
 #endif
-	if (!try_module_get(THIS_MODULE))
-		return -ENOSYS;
+	// if (!try_module_get(THIS_MODULE))
+	// 	return -ENOSYS;
 	const int ret = rm_pwd_check(pwd);
 	if (ret != 0) {
 		WARNING("failed to copy to user with error: %d\n", ret);
-		module_put(THIS_MODULE);
+		// module_put(THIS_MODULE);
 		return -EFAULT;
 	}
-	module_put(THIS_MODULE);
+	// module_put(THIS_MODULE);
 	return ret;
 }
 
-// KProbes
 
-// extern struct file *do_filp_open(int dfd, struct filename *pathname, const struct open_flags *op);
-static struct kprobe kp_open = {
-	.symbol_name = "do_filp_open",
-	.pre_handler = rm_open_pre_handler,
-};
-// int do_unlinkat(int dfd, struct filename *name);
-static struct kprobe kp_unlink = {
-	.symbol_name =  "do_unlinkat",
-	.pre_handler = rm_unlink_pre_handler,
-};
-
-// at kernel 5.4 the signature is:
-// extern long do_mkdirat(int dfd, const char __user *pathname, umode_t mode);
-static struct kprobe kp_mkdir = {
-	.symbol_name =  "do_mkdirat",
-	.pre_handler = rm_mkdir_pre_handler,
-};
-
-// at kernel 5.4 the signature is:
-// extern long do_rmdir(int dfd, const char __user *pathname);
-static struct kprobe kp_rmdir = {
-	.symbol_name =  "do_rmdir",
-	.pre_handler = rm_rmdir_pre_handler,
-};
 
 
 static int __init kremfip_init(void) {
@@ -199,28 +219,17 @@ static int __init kremfip_init(void) {
 		return -EPERM;
 	}
 
-	int err3 = register_kprobe(&kp_rmdir);
-	printk("erro3: %d\n", err3);
-	if (err3 <0) {
+	// Registering kprobes
+	if (register_kprobe(&kp_open) < 0 || register_kprobe(&kp_unlink) < 0 ||
+		register_kprobe(&kp_mkdir) < 0 || register_kprobe(&kp_rmdir) < 0) {
+		unregister_kprobe(&kp_open);
+		unregister_kprobe(&kp_unlink);
+		unregister_kprobe(&kp_mkdir);
+		unregister_kprobe(&kp_rmdir);
 		scth_cleanup();
 		rm_free(rm_p);
 		return -EPERM;
 	}
-
-
-	//int err4 = register_kprobe(&kp_rmdir);
-	//printk("erro4: %d\n", err4);
-	// Registering kprobes
-	// if (register_kprobe(&kp_open) < 0 || register_kprobe(&kp_unlink) < 0 ||
-	// 	register_kprobe(&kp_mkdir) < 0 || register_kprobe(&kp_rmdir) < 0) {
-	// 	unregister_kprobe(&kp_open);
-	// 	unregister_kprobe(&kp_unlink);
-	// 	unregister_kprobe(&kp_mkdir);
-	// 	unregister_kprobe(&kp_rmdir);
-	// 	scth_cleanup();
-	// 	rm_free(rm_p);
-	// 	return -EPERM;
-	// 	}
 
 	printk(KERN_INFO "kReMFiP module loaded\n");
 	return 0;
@@ -230,9 +239,9 @@ static void __exit kremfip_exit(void) {
 	// Unregister the system call
 	scth_cleanup();
 	//unregistering kprobes
-	// unregister_kprobe(&kp_open);
-	// unregister_kprobe(&kp_unlink);
-	// unregister_kprobe(&kp_mkdir);
+	unregister_kprobe(&kp_open);
+	unregister_kprobe(&kp_unlink);
+	unregister_kprobe(&kp_mkdir);
 	unregister_kprobe(&kp_rmdir);
 	// Free the reference monitor
 	rm_free(rm_p);
