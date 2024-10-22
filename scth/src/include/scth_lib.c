@@ -18,6 +18,10 @@
 #include "../utils/x86_utils.h"
 // Add the header for the library.
 #include "scth.h"
+// link function implementation to external library headers.
+#include "../../headers/scth_lib.h"
+
+#include <linux/fs.h>
 /**
  * @brief Mutex to ensure atomic operations on the system call table.
  * Is defined in the header file to be visible to every module.
@@ -95,8 +99,7 @@ void scth_scan_table(void **table_addr) {
  */
 int scth_pattern_check(void **addr) {
 	const void *first_sysni = addr[known_sysnis[0]];
-	int i;
-	for (i = 1; i < nr_known_sysnis; i++)
+	for (int i = 1; i < nr_known_sysnis; i++)
 		if (addr[known_sysnis[i]] != first_sysni)
 			return 0;
 	return 1;
@@ -111,8 +114,7 @@ int scth_pattern_check(void **addr) {
  * @return Yes or no.
  */
 int scth_prev_area_check(void **addr) {
-	int i;
-	for (i = 0; i < known_sysnis[0]; i++)
+	for (int i = 0; i < known_sysnis[0]; i++)
 		if (addr[i] == addr[known_sysnis[0]])
 			return 0;
 	return 1;
@@ -128,8 +130,7 @@ int scth_prev_area_check(void **addr) {
  */
 void **scth_check_page(void *pg) {
 	// Loop over the page, checking for the pattern.
-	unsigned long i;
-	for (i = 0; i < __PAGE_SIZE; i += sizeof(void *)) {
+	for (unsigned long i = 0; i < __PAGE_SIZE; i += sizeof(void *)) {
 		// If the table may span over two pages, check the second one.
 		void *sec_page = pg + i + known_sysnis[nr_known_sysnis - 1] * sizeof(void *);
 		if ((ulong)(pg + __PAGE_SIZE) == ((ulong)sec_page & __PAGE_MASK) &&
@@ -171,7 +172,7 @@ void scth_cleanup(void) {
 	// Restore all the entries that have been hacked.
 	int i;
 	for (i = 0; i < nr_sysnis; i++) {
-		// We know if an entry has been hacked with the struct's flag.
+		// We know if an entry has been hacked with the structure's flag.
 		if (avail_sysnis[i].hacked) {
 			// Disable write protection, replace the entry, and re-enable it.
 			__x86_wp_disable(flags);
@@ -267,13 +268,12 @@ void scth_unhack(int to_restore) {
 	}
 exit:
 	mutex_unlock(&scth_lock);
-	return;
 }
 EXPORT_SYMBOL(scth_unhack);
 
 /**
  * @brief Looks for the system call table searching kernel memory in a linear fashion.
- * It relies, together with previous routines, on the following assumptions:\n
+ * It relies on, together with previous routines, the following assumptions:\n
  * 1- We can start the search at KERNEL_START_ADDR.\n
  * 2 - When the kernel image is loaded in memory, relative offsets between
  *     elements aren't randomized even if KASLR or similar are enabled.\n
@@ -284,8 +284,8 @@ EXPORT_SYMBOL(scth_unhack);
  * @return UNISTD_64 system call table virtual address, or 0 if search fails.
  */
 void **scth_finder(void) {
-	void **addr, *pg;
-	for (pg = KERNEL_START_ADDR; pg < KERNEL_END_ADDR; pg += __PAGE_SIZE) {
+	void **addr;
+	for (void *pg = KERNEL_START_ADDR; pg < KERNEL_END_ADDR; pg += __PAGE_SIZE) {
 		// Do a simple linear search in the canonical higher half of virtual
 		// memory, previously checking that the target address is mapped to
 		// avoid General Protection Errors, page by page.

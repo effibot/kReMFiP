@@ -8,6 +8,9 @@
 #ifndef CONSTANTS_H
 #define CONSTANTS_H
 
+//#define DEBUG
+
+
 // THIS SECTION IS SHAREABLE BETWEEN KERNEL AND USER SPACE
 #define RM_PWD_MAX_LEN 128
 #define RM_PWD_MIN_LEN 1
@@ -31,14 +34,13 @@ typedef enum _rm_state_t {
 * @brief The possible operations that can be performed on a path.
 * The reference monitor can protect or unprotect a path.
 */
-typedef enum _rm_path_op_t {
-	PROTECT_PATH = 0,
-	UNPROTECT_PATH = 1
-} path_op_t;
+typedef enum _rm_path_op_t { PROTECT_PATH = 0, UNPROTECT_PATH = 1 } path_op_t;
 
 // THIS SECTION IS ONLY FOR THE KERNEL SPACE
 #ifdef __KERNEL__
+#ifndef MODNAME
 #define MODNAME "KREMFIP"
+#endif
 #include <linux/kernel.h>
 
 // Default sizes of module's hash table
@@ -76,31 +78,22 @@ printk(KERN_INFO "The size of the hash table is too big. We'll reduce to 32 bits
 
 // define the size of the hash
 #define RM_PWD_HASH_LEN 32
-
+// the length of the hash in string format, to perform the checksum
+#define RM_STR_HASH_LEN RM_PWD_HASH_LEN * 2 + 1
 // define the name of the Monitor
 #define RM_DEFAULT_NAME "KREMFIP"
 
 // define the Initial State of the Monitor
 #define RM_INIT_STATE REC_OFF
 
-#else
+// define the default crypto algorithm
+#define RM_CRYPTO_ALGO "sha256"
 
-// THIS SECTION IS ONLY FOR THE USER SPACE
-
-// Define the system call numbers
-#ifndef __NR_state_get
-#define __NR_state_get 134	// retrieves the state of the reference monitor
+/**
+ * Define the attribute name for the password hash.
+ * BEWARE: this must be the same, at least, of the directory name in the sysfs.
+ */
+#define RM_PWD_HASH_ATTR_NAME "pwd_hash"	// the name of the attribute
+#define RM_PWD_HASH_PATH "/sys/module/kremfip/pwd_hash/pwd_hash" // the path to the attribute
 #endif
-
-#ifndef __NR_state_set
-#define __NR_state_set 174 // sets the state of the reference monitor
-#endif
-
-#ifndef __NR_reconfigure
-#define __NR_reconfigure 177 // reconfigures the reference monitor
-#endif
-
-#endif
-// user_space
-
 #endif

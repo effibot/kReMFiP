@@ -3,17 +3,15 @@
 # Makefile for the "System Call Table Hacker" kernel module.
 # NOTE: To activate debugging in this module, set DEBUG=1 from the command line.
 
-MODNAME:=scth
+MODNAME := scth
 KDIR ?= /lib/modules/$(shell uname -r)/build
-PWD := $(shell pwd)
 SRCDIR := src
-TESTDIR := ./test
+TESTDIR := test
 INCLUDEDIR := $(SRCDIR)/include
 UTILSDIR := $(SRCDIR)/utils
-VERSION := 1.0
 
 # Compiler Flags
-CFLAGS := -Wno-declaration-after-statement -O3 -g
+CFLAGS := -std=gnu11 -Wno-comment -Wno-declaration-after-statement -Wno-implicit-fallthrough -Wno-unused-function -O3 -g
 # Source files
 SRC := $(SRCDIR)/scth_main.o
 # Core Headers
@@ -22,7 +20,11 @@ INCLUDE := $(INCLUDEDIR)/scth_lib.o
 UTILS := $(UTILSDIR)/paging_navigator.o
 # Test stuffs
 TESTS := $(TESTDIR)/tests.o
-ifeq ($(KERNELRELEASE),)
+
+# directives
+obj-m += $(MODNAME).o
+$(MODNAME)-y += $(SRC) $(INCLUDE) $(UTILS)
+
 .PHONY: all  clean load unload test
 all:
 	$(MAKE) -C $(KDIR) M=$(PWD) modules EXTRA_CFLAGS="$(CFLAGS)"
@@ -43,16 +45,3 @@ test:
 	cd $(TESTDIR) && $(MAKE) test
 # unload the module
 	sudo rmmod $(MODNAME).ko
-
-else
-# directives
-obj-m += $(MODNAME).o
-$(MODNAME)-objs += $(SRC) $(INCLUDE) $(UTILS)
-ifeq ($(DEBUG), 1)
-ccflags-y += -DDEBUG
-endif
-ifeq ($(SHOW_NUMBERS), 1)
-ccflags-y += -DSHOW_NUMBERS
-endif
-endif
-

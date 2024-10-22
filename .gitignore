@@ -54,3 +54,5 @@ vmlinux
 /.idea/kReMFiP.iml
 /.idea/modules.xml
 .idea/*
+test
+**_test

@@ -12,6 +12,7 @@ int test_syscall(int arg) {
 
 int main() {
 	int ret;
+
 	ret = test_syscall(42);
 	printf("test_syscall returned with code %d\n", ret);
 	if (ret == 0) {

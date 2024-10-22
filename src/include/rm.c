@@ -13,45 +13,37 @@
 
 #include "rm.h"
 #include "../utils/misc.h"
-#include <crypto/hash.h>
-#include <crypto/sha256_base.h>
-#include <linux/crypto.h>
+#include "../utils/pathmgm.h"
 #include <linux/fdtable.h>
-#include <linux/file.h>
 #include <linux/fs.h>
 #include <linux/init.h>
 #include <linux/kernel.h>
 #include <linux/kobject.h>
 #include <linux/memory.h>
 #include <linux/module.h>
+#include <linux/namei.h>
+#include <linux/random.h>
 #include <linux/slab.h>
 #include <linux/string.h>
 #include <linux/sysfs.h>
-#include <linux/uaccess.h>
-#include <linux/vfs.h>
-#include <linux/workqueue.h>
 
 /*********************************
  * Internal functions prototypes *
  *********************************/
-// internal password hashing function
-static int __rm_hash_pwd(const char *pwd, const u8 *pwd_salt, u8 *pwd_hash);
-// internal password verification function
-//static bool __verify_pwd(const char *input_str);
+
 // dedicated sysfs file for the password hash
-static ssize_t rm_pwd_hash_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf);
+static ssize_t pwd_hash_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf);
 
 /*************************************************
  * Preliminary setup for the password management *
  *************************************************/
 static char *module_pwd = NULL; // default value
-static u8 pwd_salt[RM_PWD_SALT_LEN];
+u8 pwd_salt[RM_PWD_SALT_LEN];
 static u8 rm_pwd_hash[RM_PWD_HASH_LEN];
-static char *module_crypto_algo = "sha256"; // default value
 module_param(module_pwd, charp, 0000);
 MODULE_PARM_DESC(module_pwd, "The password for the reference monitor");
 
-static struct kobj_attribute hash_pwd_attr = __ATTR_RO(rm_pwd_hash);
+static struct kobj_attribute hash_pwd_attr = __ATTR_RO(pwd_hash);
 static struct attribute *attrs[] = {
 	&hash_pwd_attr.attr,
 	NULL,
@@ -71,15 +63,16 @@ static struct attribute_group attr_group = {
  * @return rm_t* A pointer to the reference monitor structure
  */
 
+rm_t *rm;
 rm_t *rm_init(void) {
 	// Allocate memory for the reference monitor
-	rm_t *rm = kzalloc(sizeof(rm), GFP_KERNEL);
+	rm = kzalloc(sizeof(rm_t), GFP_KERNEL);
 	if (unlikely(rm == NULL)) {
-		INFO("Failed to allocate memory for the reference monitor");
+		WARNING("Failed to allocate memory for the reference monitor");
 		return NULL;
 	}
 	// Set the default values
-	rm->name = RM_DEFAULT_NAME;
+	//rm->name = RM_DEFAULT_NAME;
 	rm->state = RM_INIT_STATE;
 	rm->id = rnd_id();
 	// Initialize the hash table and be sure that all goes well
@@ -93,15 +86,14 @@ rm_t *rm_init(void) {
 	// initialize the salt
 	get_random_bytes(pwd_salt, RM_PWD_SALT_LEN);
 	// hash the password with the salt
-	if (__rm_hash_pwd(module_pwd, pwd_salt, rm_pwd_hash) != 0) {
+	if (hash_pwd(module_pwd, pwd_salt, rm_pwd_hash) != 0) {
 		WARNING("Failed to hash the password");
 		kfree(rm);
 		return NULL;
 	}
-
 	// store the password hash in the dedicated sysfs file
 	// we crate a subfolder under /sys/module/kremfip
-	rm->kobj = kobject_create_and_add("rm_pwd_hash", &THIS_MODULE->mkobj.kobj);
+	rm->kobj = kobject_create_and_add(RM_PWD_HASH_ATTR_NAME, &THIS_MODULE->mkobj.kobj);
 	if (rm->kobj == NULL) {
 		WARNING("Failed to create the sysfs file for the password hash");
 		kfree(rm);
@@ -115,7 +107,7 @@ rm_t *rm_init(void) {
 		return NULL;
 	}
 	// check if the password hash is stored correctly
-	if(!verify_pwd(module_pwd)) {
+	if (!verify_pwd(module_pwd)) {
 		WARNING("Failed to verify the password hash");
 		kfree(rm);
 		return NULL;
@@ -125,6 +117,8 @@ rm_t *rm_init(void) {
 #ifdef DEBUG
 	INFO("Password hash stored successfully\n");
 #endif
+	// Initialize the spinlock
+	spin_lock_init(&rm->lock);
 #ifdef DEBUG
 	INFO("Reference Monitor Initialized successfully\n");
 #endif
@@ -140,7 +134,7 @@ rm_t *rm_init(void) {
  */
 int set_state(rm_t *rm, const state_t state) {
 	// safety checks
-	if(unlikely(rm == NULL)) {
+	if (unlikely(rm == NULL)) {
 		WARNING("Reference monitor is NULL");
 		return -EINVAL;
 	}
@@ -149,6 +143,7 @@ int set_state(rm_t *rm, const state_t state) {
 	INFO("Setting the state to %s\n", state_to_str(state));
 #endif
 	rm->state = state;
+	// TODO: Add or remove the hooks based on the state
 	return 0;
 }
 /**
@@ -161,7 +156,7 @@ int set_state(rm_t *rm, const state_t state) {
 state_t get_state(const rm_t *rm) {
 	// assert that the reference monitor is not NULL
 	if (rm == NULL) {
-		INFO("Reference monitor is NULL");
+		WARNING("Reference monitor is NULL");
 		return -EINVAL;
 	}
 	// return the state
@@ -177,16 +172,45 @@ state_t get_state(const rm_t *rm) {
 void rm_free(const rm_t *rm) {
 	// assert that the reference monitor is not NULL
 	if (rm == NULL) {
-		INFO("Reference monitor is NULL");
+		WARNING("Reference monitor is NULL");
 		return;
 	}
 	// free the hash table
 	ht_destroy(rm->ht);
 	// remove the sysfs file
-	sysfs_remove_file(rm->kobj, &hash_pwd_attr.attr);
+	//sysfs_remove_file(rm->kobj, &hash_pwd_attr.attr);
 	kobject_put(rm->kobj);
 	// free the reference monitor
 	kfree(rm);
+}
+
+/**
+ * @brief Check if the path is protected
+ * This function checks if the path is present in the hash table.
+ * @param path The path to check
+ * @return int 0 if the path is not present in the hash table, 1 otherwise
+ */
+
+bool is_protected(const char *path) {
+	// safety checks
+	if (unlikely(path == NULL) || unlikely(strlen(path) == 0)) {
+		WARNING("Path is NULL");
+		goto f;
+	}
+	// be sure that our ht exists
+	if (unlikely(rm->ht == NULL)) {
+		WARNING("Hash table is NULL");
+		goto f;
+	}
+	// Our lookup is key-based, so we need to hash the path
+	const uint64_t key = compute_hash(path);
+	// make a lookup in the hash table
+	const node_t *found = ht_lookup(rm->ht, key);
+	if (found) {
+		return true;
+	}
+f:
+	return false;
 }
 
 /*************************************
@@ -194,156 +218,348 @@ void rm_free(const rm_t *rm) {
  *************************************/
 
 /**
- * @brief Hash the password with the salt
- *
- * This function hashes the password with the salt using the SHA256 algorithm.
- * The hash is stored in the pwd_hash buffer. The salt is prepended to the password.
- * BEWARE: the password hash MUST be stored in the dedicated sysfs file and then
- * cleared from memory to avoid leaking traces of the password in the kernel space.
- *
- * @param pwd The password to hash
- * @param pwd_salt The salt to use for hashing
- * @param pwd_hash The buffer to store the hash
- * @return int 0 if the hash is computed successfully, an error code otherwise
- */
-
-static int __rm_hash_pwd(const char *pwd, const u8 *pwd_salt, u8 *pwd_hash) {
-	// The password is set at the module load time. Checking for non-NULL value just to be sure.
-	if (unlikely(pwd == NULL || strlen(pwd) == 0)) {
-		INFO("Password is not set");
-		return -EINVAL;
-	}
-
-	// concatenate the password and the salt
-	const size_t salted_len = strlen(pwd) + RM_PWD_SALT_LEN;
-	u8 *salted_pwd = kzalloc(salted_len, GFP_KERNEL);
-	if (unlikely(salted_pwd == NULL)) {
-		INFO("Failed to allocate memory for the salted password");
-		return -ENOMEM;
-	}
-	// Add the salt at the head because is proven to be more secure
-	memcpy(salted_pwd, pwd_salt, RM_PWD_SALT_LEN);
-	memcpy(salted_pwd + RM_PWD_SALT_LEN, pwd,
-		   strlen(pwd)); // pointers arithmetic
-
-	// allocate memory for the hash - we use the SHA256 algorithm because yes
-	struct crypto_shash *tfm = crypto_alloc_shash(module_crypto_algo, 0, 0);
-	if (IS_ERR(tfm)) {
-		INFO("Failed to allocate crypto shash");
-		return PTR_ERR(tfm);
-	}
-	// allocate memory for the hash descriptor
-	// Allocate descriptor for shash (synchronous hash)
-	struct shash_desc *desc = kmalloc(sizeof(*desc) + crypto_shash_descsize(tfm), GFP_KERNEL);
-	if (!desc) {
-		printk(KERN_ERR "Failed to allocate shash descriptor\n");
-		crypto_free_shash(tfm);
-		kfree(salted_pwd);
-		return -ENOMEM;
-	}
-	// Initialize the descriptor
-	desc->tfm = tfm;
-
-	// Initialize the hash descriptor
-	int ret = crypto_shash_init(desc);
-	if (ret) {
-		printk(KERN_ERR "Hash initialization failed\n");
-		goto out;
-	}
-
-	// Hash the salted password
-	ret = crypto_shash_update(desc, salted_pwd, salted_len);
-	if (ret) {
-		printk(KERN_ERR "Hash update failed\n");
-		goto out;
-	}
-
-	// Finalize the hash
-	ret = crypto_shash_final(desc, pwd_hash);
-	if (ret) {
-		printk(KERN_ERR "Hash finalization failed\n");
-	}
-#ifdef DEBUG
-	else {
-		printk(KERN_INFO "Password hash with salt computed successfully\n");
-	}
-#endif
-
-	// free the memory - we don't want to leak traces of the password
-out:
-	memzero_explicit(salted_pwd, salted_len);
-	kfree(salted_pwd);
-	memzero_explicit(desc, sizeof(*desc));
-	kfree(desc);
-	crypto_free_shash(tfm);
-	return ret;
-}
-
-/**
- * @brief Verify the hash of the input string
- *
- * This function verifies the hash of the input string with the stored hash.
- * It computes the hash of the input string and compares it with the stored hash.
- *
- * @param input_str The input string to verify
- * @return true The hash of the input string matches the stored hash
- * @return false The hash of the input string does not match the stored hash
- */
-
-bool verify_pwd(const char *input_str) {
-	// Ensure the input string is not NULL
-	INFO("Verifying the password");
-	if (IS_ERR_OR_NULL(input_str)) {
-		WARNING("Input string is NULL");
-		return false;
-	}
-	// Hash the input string
-	u8 *input_hash = kzalloc(RM_PWD_HASH_LEN*sizeof(u8), GFP_KERNEL);
-	if (__rm_hash_pwd(input_str, pwd_salt, input_hash)) {
-		WARNING("Failed to hash the input string");
-		return false;
-	}
-	// Retrieve the stored hash from the sysfs
-	struct file *f = filp_open("/sys/module/kremfip/rm_pwd_hash/rm_pwd_hash", O_RDONLY, 0);
-	if (IS_ERR(f)) {
-		WARNING("Failed to open the sysfs file");
-		return false;
-	}
-	// Read the stored hash from the sysfs
-	char *stored_hash;
-	size_t stored_hash_len = RM_PWD_HASH_LEN * 2 + 1;
-	stored_hash = kzalloc(stored_hash_len*sizeof(char), GFP_KERNEL);
-	const ssize_t bytes_read = kernel_read(f, stored_hash, RM_PWD_HASH_LEN * 2, &f->f_pos);
-	filp_close(f, NULL);
-	if (bytes_read < 0) {
-		WARNING("Failed to read the stored hash from the sysfs file");
-		return false;
-	}
-	// Compare the hashes
-	const bool cmp =
-		memcmp(hex_to_str(input_hash, RM_PWD_HASH_LEN), stored_hash, RM_PWD_HASH_LEN) == 0;
-#ifdef DEBUG
-	INFO("Hashes compared successfully");
-#endif
-	// Clean up the stored hash
-	memzero_explicit(stored_hash, stored_hash_len);
-	memzero_explicit(input_hash, RM_PWD_HASH_LEN);
-	kfree(stored_hash);
-	kfree(input_hash);
-	return cmp;
-}
-
-/**
  * @brief Show the password hash
- *
  * This function shows the password hash in the sysfs file.
- *
  * @param kobj The kobject
  * @param attr The kobject attribute
  * @param buf The buffer to store the password hash
  * @return ssize_t The number of bytes written
  */
-static inline ssize_t rm_pwd_hash_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf) {
+static inline ssize_t pwd_hash_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf) {
 	// just copy the password hash to the buffer as a null-terminated string
-	return snprintf(buf, RM_PWD_HASH_LEN * 2 + 1, "%s", hex_to_str(rm_pwd_hash, RM_PWD_HASH_LEN));
+	char *str = kzalloc((RM_PWD_HASH_LEN * 2 + 1) * sizeof(char), GFP_KERNEL);
+	const ssize_t error = hex_to_str(rm_pwd_hash, RM_PWD_HASH_LEN, str);
+	if (error) {
+		WARNING("Failed to convert the password hash to a string");
+		kfree(str);
+		return error;
+	}
+	const ssize_t byte_written = snprintf(buf, RM_PWD_HASH_LEN * 2 + 1, "%s", str);
+	kfree(str);
+	return byte_written;
+}
+
+#define PATH_LEN 1024
+
+static inline void __send_sig_to_current(int sig) {
+	struct task_struct *task = current;
+	send_sig(sig, task, 1);
+}
+
+/** NOTE: on the do_filp_open syscall ----------------------------------
+ * To check if the system calls can do its job we need to check 2 things:
+ * 1. If the flags imply open a path with some write permissions.
+ * According to the current ABI, we have:
+ * -- rdi->arg0: int dfd
+ * -- rsi->arg1: struct filename *pathname
+ * -- rdx->arg2: struct open_flags *flags
+ * 2. If the path is present inside the hash table returns are 0 if error
+ * occurs to don't interfere with the syscall, and they are non-zero if
+ * memory problem occurs. Remember that at least the parent directory
+ * of the opened resource must exist or the kernel fails even if the O_CREAT flag is set.
+ * --------------------------------------------------------------------
+ */
+
+int rm_open_pre_handler(struct kprobe *ri, struct pt_regs *regs) {
+	// Extract the function arguments from the registers based on the x86_64 ABI
+	const struct filename *name =
+		(struct filename *)regs->si; // 2nd argument: filename (struct filename pointer)
+	struct open_flags *open_flags =
+		(struct open_flags *)regs->dx; // 3rd argument: open_flags (struct open_flags pointer)
+
+	int flags = open_flags->open_flag; // Open flags
+	// Only proceed if the file is opened for writing or creating
+	if (!(flags & O_RDWR) && !(flags & O_WRONLY) && !(flags & (O_CREAT | __O_TMPFILE | O_EXCL)))
+		return 0;
+
+	// Get the file path from the filename struct
+	const char *pathname = name->name;
+	// If pathname is NULL, there's nothing to check, skip
+	if (!pathname) {
+		return 0;
+	}
+
+	// Check if the path is valid and should be monitored
+	if (!is_valid_path(pathname)) {
+		return 0; // Skip if the path is not valid
+	}
+
+#ifdef DEBUG
+	int dfd = (int)regs->di; // 1st argument: directory file descriptor
+	INFO("Probing do_filp_open with dfd %d and (flags, mode)=(%d, %d) for path %s\n", dfd,
+		 open_flags->open_flag, open_flags->mode, pathname);
+#endif
+	// Get the absolute path of the file its parent directory
+	char *path_buf = kzalloc(PATH_LEN * sizeof(char), GFP_KERNEL);
+	if (!path_buf) {
+		WARNING("Failed to allocate memory for the path buffer\n");
+		return 0;
+	}
+
+	// resolve the path to its absolute form
+	const int err_abs = get_abs_path(pathname, path_buf);
+	if (err_abs != 0 && err_abs != -ENOENT) {
+		// Something went wrong, log the error and return
+		WARNING("Failed to get the absolute path of %s with code %d\n", pathname, err_abs);
+		goto out_abs;
+	}
+	// now we find the parent directory for the special case of opening a file which path
+	// if it is one hop from our current working directory
+
+	char *parent_buf = kzalloc(PATH_LEN * sizeof(char), GFP_KERNEL);
+	if (!parent_buf) {
+		WARNING("Failed to allocate memory for the parent buffer\n");
+		goto out_parent;
+	}
+
+	const int err_parent = get_dir_path(path_buf, parent_buf);
+	// Check if something went wrong when calculating the parent directory
+	// or if the parent directory does not exist
+	if (err_parent != 0 || !is_dir(parent_buf)) {
+		WARNING("Failed to get the parent directory of %s with code %d\n", pathname, err_parent);
+		goto out_parent;
+	}
+
+#ifdef DEBUG
+	INFO("\nFound Parent %s\nfor Resource %s", parent_buf, path_buf);
+#endif
+	
+	// Check for parent protection
+	if (is_protected(parent_buf) || (strlen(path_buf) > 0 && is_protected(path_buf))) {
+		WARNING("Attempt to open a file (%s) in a protected directory: %s\n", pathname, parent_buf);
+		flags &= ~(O_WRONLY | O_RDWR | O_CREAT | O_EXCL | __O_TMPFILE | O_TRUNC | O_APPEND);
+		flags |= O_RDONLY;
+		open_flags->open_flag = flags;
+		// Send a signal to the current process to kill it
+		struct task_struct *task = current;
+		// if (task) {
+		send_sig(SIGINT, task, 1);
+		// }
+		INFO("signal sent");
+	}
+
+out_parent:
+	kfree(parent_buf);
+out_abs:
+	kfree(path_buf);
+	return 0;
+}
+
+int rm_mkdir_pre_handler(struct kprobe *ri, struct pt_regs *regs) {
+	// Extract the function arguments from the registers based on the x86_64 ABI
+	const char __user *u_pathname = (const char __user *)regs->si; // 2nd argument:
+	if (u_pathname == NULL) {
+		return 0;
+	}
+	// map into kernel space
+	const char *pathname = map_user_buffer(u_pathname, strnlen_user(u_pathname, PAGE_SIZE)+1);
+	map_check(pathname) {
+		WARNING("failed to copy path from user\n");
+		goto out_user_error;
+	}
+	// If pathname is NULL, there's nothing to check, skip
+	if (!pathname) {
+		goto out_user_error;
+	}
+
+	// Check if the path is valid and should be monitored
+	if (!is_valid_path(pathname)) {
+		goto out_user_error; // Skip if the path is not valid
+	}
+	INFO("path valid")
+#ifdef DEBUG
+	int dfd = (int)regs->di; // 1st argument: directory file descriptor
+	INFO("Probing mkdir with dfd %d for path %s\n", dfd, pathname);
+#endif
+
+	// Get the absolute path of the file and its parent directory
+	char *path_buf = kzalloc(PATH_LEN * sizeof(char), GFP_KERNEL);
+	if (!path_buf) {
+		WARNING("Failed to allocate memory for the path buffer\n");
+		goto out_user_error;
+	}
+
+	// resolve the path to its absolute form
+	const int err_abs = get_abs_path(pathname, path_buf);
+	if (err_abs != 0 && err_abs != -ENOENT) {
+		// Something went wrong, log the error and return
+		WARNING("Failed to get the absolute path of %s with code %d\n", pathname, err_abs);
+		goto out_abs;
+	}
+	// find the parent directory
+	char *parent_buf = kzalloc(PATH_LEN * sizeof(char), GFP_KERNEL);
+	if (!parent_buf) {
+		WARNING("Failed to allocate memory for the parent buffer\n");
+		goto out_parent;
+	}
+
+	const int err_parent = get_dir_path(path_buf, parent_buf);
+	// Check if something went wrong when calculating the parent directory
+	// or if the parent directory does not exist
+	if (err_parent != 0 || !is_dir(parent_buf)) {
+		WARNING("Failed to get the parent directory of %s with code %d\n", pathname, err_parent);
+		goto out_parent;
+	}
+	// Check for parent protection
+	if (is_protected(parent_buf) || (strlen(path_buf) > 0 && is_protected(path_buf))) {
+		WARNING("Attempt to create a directory in a protected directory: %s\n", parent_buf);
+		// reject system call
+		// regs->ax = -EPERM;
+		// regs->si = (unsigned long)NULL;
+		__send_sig_to_current(SIGKILL);
+	}
+
+out_parent:
+	kfree(parent_buf);
+out_abs:
+	kfree(path_buf);
+out_user_error:
+	kfree(pathname);
+	return 0;
+}
+
+int rm_rmdir_pre_handler(struct kprobe *ri, struct pt_regs *regs) {
+		// Extract the function arguments from the registers based on the x86_64 ABI
+	const char __user *u_pathname = (const char __user *)regs->si; // 2nd argument:
+	if (u_pathname == NULL) {
+		return 0;
+	}
+
+	// map into kernel space
+	const char *pathname = map_user_buffer(u_pathname, strnlen_user(u_pathname, PAGE_SIZE)+1);
+	map_check(pathname) {
+		WARNING("failed to copy path from user\n");
+		goto out_user_error;
+	}
+
+	// If pathname is NULL, there's nothing to check, skip
+	if (!pathname) {
+		goto out_user_error;
+	}
+
+	// Check if the path is valid and should be monitored
+	if (!is_valid_path(pathname)) {
+		goto out_user_error; // Skip if the path is not valid
+	}
+
+#ifdef DEBUG
+	int dfd = (int)regs->di; // 1st argument: directory file descriptor
+	INFO("Probing rmdir with dfd %d for path %s\n", dfd, pathname);
+#endif
+
+	// Get the absolute path of the file its parent directory
+	char *path_buf = kzalloc(PATH_LEN * sizeof(char), GFP_KERNEL);
+	if (!path_buf) {
+		WARNING("Failed to allocate memory for the path buffer\n");
+		goto out_user_error;
+	}
+
+	// resolve the path to its absolute form
+	const int err_abs = get_abs_path(pathname, path_buf);
+	if (err_abs != 0 && err_abs != -ENOENT) {
+		// Something went wrong, log the error and return
+		WARNING("Failed to get the absolute path of %s with code %d\n", pathname, err_abs);
+		goto out_abs;
+	}
+
+	// find the parent directory
+	char *parent_buf = kzalloc(PATH_LEN * sizeof(char), GFP_KERNEL);
+	if (!parent_buf) {
+		WARNING("Failed to allocate memory for the parent buffer\n");
+		goto out_abs;
+	}
+
+	const int err_parent = get_dir_path(path_buf, parent_buf);
+
+	// Check if something went wrong when calculating the parent directory
+	// or if the parent directory does not exist
+	if (err_parent != 0 || !is_dir(parent_buf)) {
+		WARNING("Failed to get the parent directory of %s with code %d\n", pathname, err_parent);
+		goto out_parent;
+	}
+
+	// Check for parent protection
+	if (is_protected(parent_buf) || (strlen(path_buf) > 0 && is_protected(path_buf))) {
+		WARNING("Attempt to remove a directory from a protected directory: %s\n", parent_buf);
+		// reject system call
+		// regs->ax = -EPERM;
+		// regs->si = (unsigned long)NULL;
+		__send_sig_to_current(SIGKILL);
+	}
+
+out_parent:
+	kfree(parent_buf);
+out_abs:
+	kfree(path_buf);
+out_user_error:
+	kfree(pathname);
+	return 0;
+}
+
+int rm_unlink_pre_handler(struct kprobe *ri, struct pt_regs *regs) {
+	// Extract the function arguments from the registers based on the x86_64 ABI
+	const struct filename *name =
+		(struct filename *)regs->si; // 2nd argument: filename (struct filename pointer)
+
+	// Get the file path from the filename struct
+	const char *pathname = name->name;
+	// If pathname is NULL, there's nothing to check, skip
+	if (!pathname) {
+		return 0;
+	}
+
+	// Check if the path is valid and should be monitored
+	if (!is_valid_path(pathname)) {
+		return 0; // Skip if the path is not valid
+	}
+
+#ifdef DEBUG
+	int dfd = (int)regs->di; // 1st argument: directory file descriptor
+	INFO("Probing unlink with dfd %d for path %s\n", dfd, pathname);
+#endif
+
+	// Get the absolute path of the file its parent directory
+	char *path_buf = kzalloc(PATH_LEN * sizeof(char), GFP_KERNEL);
+	if (!path_buf) {
+		WARNING("Failed to allocate memory for the path buffer\n");
+		return 0;
+	}
+
+	// resolve the path to its absolute form
+	const int err_abs = get_abs_path(pathname, path_buf);
+	if (err_abs != 0 && err_abs != -ENOENT) {
+		// Something went wrong, log the error and return
+		WARNING("Failed to get the absolute path of %s with code %d\n", pathname, err_abs);
+		goto out_abs;
+	}
+
+	// now we find the parent directory
+	char *parent_buf = kzalloc(PATH_LEN * sizeof(char), GFP_KERNEL);
+	if (!parent_buf) {
+		WARNING("Failed to allocate memory for the parent buffer\n");
+		goto out_abs;
+	}
+
+	const int err_parent = get_dir_path(path_buf, parent_buf);
+
+	// Check if something went wrong when calculating the parent directory
+	// or if the parent directory does not exist
+	if (err_parent != 0 || !is_dir(parent_buf)) {
+		WARNING("Failed to get the parent directory of %s with code %d\n", pathname, err_parent);
+		goto out_parent;
+	}
+
+	// Check for parent protection
+	if (is_protected(parent_buf) || (strlen(path_buf) > 0 && is_protected(path_buf))) {
+		WARNING("Attempt to remove a file (%s) from a protected directory: %s\n", pathname, parent_buf);
+		// reject system call
+		// regs->ax = -EPERM;
+		// regs->si = (unsigned long)NULL;
+		__send_sig_to_current(SIGKILL);
+	}
+out_parent:
+	kfree(parent_buf);
+out_abs:
+	kfree(path_buf);
+	return 0;
 }

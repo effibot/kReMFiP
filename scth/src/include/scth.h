@@ -39,10 +39,4 @@ struct scth_entry {
 	unsigned char hacked : 1;
 };
 
-// Library functions prototypes.
-void **scth_finder(void);
-void scth_cleanup(void);
-int scth_hack(void *new_call_addr);
-void scth_unhack(int to_restore);
-
 #endif
