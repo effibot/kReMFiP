@@ -7,7 +7,7 @@
 # Module Name
 MODNAME := kremfip
 # Module Version
-VERSION := 0.1
+VERSION := 1.0
 # Kernel Module Directory
 KDIR ?= /lib/modules/$(shell uname -r)/build
 # Source Directory
