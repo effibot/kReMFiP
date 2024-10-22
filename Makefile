@@ -14,6 +14,7 @@ KDIR ?= /lib/modules/$(shell uname -r)/build
 SRCDIR := src
 # Sub-module Directory
 SCTHDIR := scth
+LOGFSDIR := loggerfs
 # Include Directory
 INCLUDEDIR := $(SRCDIR)/include
 # Utilities Directory
@@ -39,7 +40,7 @@ CFLAGS := -std=gnu11 -Wno-comment -Wno-declaration-after-statement -Wno-implicit
 
 # Module configuration
 obj-m += $(MODNAME).o
-obj-y += $(SCTHDIR)/
+obj-y += $(SCTHDIR)/ $(LOGFSDIR)/
 $(MODNAME)-y += $(SRC) $(INCLUDE) $(UTILS) $(LIBS)
 KBUILD_EXTRA_SYMBOLS += $(PWD)/$(SCTHDIR)/Module.symvers
 

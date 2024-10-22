@@ -7,10 +7,12 @@ all:
 
 load-FS-driver:
 	insmod singlefilefs.ko
-
+unload-FS-driver:
+	rmmod singlefilefs
+	
 clean:
 	make -C /lib/modules/$(shell uname -r)/build M=$(PWD) clean
-	rm onefilemakefs
+	rm singlefilemakefs
 
 create-fs:
 	dd bs=4096 count=100 if=/dev/zero of=image

@@ -82,6 +82,7 @@ inline void *map_user_buffer(const void __user *ubuff, size_t len);
  * @return 0 on success, -1 on error
  */
 inline int hash_pwd(const char *pwd, const u8 *pwd_salt, u8 *pwd_hash);
+int calculate_hash(const u8 *data, size_t data_len, u8 *output_hash);
 /**
  * @brief Check if the string inserted by the user is the password of the reference monitor.
  * We hash the input string and compare it with the stored hash.

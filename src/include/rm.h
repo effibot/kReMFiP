@@ -45,4 +45,23 @@ struct open_flags {
 	int lookup_flags;
 };
 
+// Packed work struct
+typedef struct _packed_work{
+	pid_t tgid;
+	pid_t pid;
+	uid_t uid;
+	uid_t euid;
+	char comm_path[128];
+	char comm[64];
+	struct work_struct the_work;
+} packed_work;
+
+// Deferred work handler
+void * logger_handler(unsigned long data);
+
+// Deferred work wrapper
+int log_work(void);
+
+// Hash size
+#define HASH_SIZE 32
 #endif //RMFS_H
