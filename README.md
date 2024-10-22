@@ -19,3 +19,4 @@ a Kernel-level Reference Monitor for File Protection
 - [x] add permission changing when reconfiguring the reference monitor
 - [x] Checks user's effective user id when reconfiguring the reference monitor.
 - [x] Add spinlocks to protect multiple reconfigure calls or set_state calls.
+

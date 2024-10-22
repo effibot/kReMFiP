@@ -35,7 +35,6 @@ protected file system path is attempted:
 	<li>the effective user-id
 	<li>the program path-name that is currently attempting the open
 	<li> a cryptographic hash of the program file content
-
 </ul>
 
 The the computation of the cryptographic hash and the writing of the above tuple should be carried in deferred work.
@@ -69,3 +68,5 @@ Other references kept in the struct are:
 - [x] implement the kobject for the password hash
 - [ ] add syscalls to interact with the reference monitor
 - [ ] add permission changing when reconfiguring the reference monitor
+
+
