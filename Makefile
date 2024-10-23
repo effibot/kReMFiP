@@ -57,6 +57,7 @@ all:
 clean:
 	$(MAKE) -C $(KDIR) M=$(PWD) clean
 	@if [ -f $(USERDIR)/user_test ]; then rm $(USERDIR)/user_test; fi
+	$(MAKE) -C $(LOGFSDIR) remove
 
 load:
 	@echo "$(MODNAME) Loading..."

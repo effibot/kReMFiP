@@ -1,15 +1,20 @@
-#include <linux/init.h>
-#include <linux/module.h>
-#include <linux/fs.h>
-#include <linux/time.h>
+#include "operations.h"
+#include "loggerfs.h"
 #include <linux/buffer_head.h>
-#include <linux/types.h>
+#include <linux/fs.h>
+#include <linux/init.h>
+#include <linux/kernel.h>
+#include <linux/module.h>
+#include <linux/mutex.h>
 #include <linux/slab.h>
 #include <linux/string.h>
-#include <linux/kernel.h>
+#include <linux/time.h>
+#include <linux/types.h>
 
-#include "loggerfs.h"
-#include "operations.h"
+#include <linux/uio.h>
+
+extern struct mutex logfs_mutex;
+uint64_t file_size;
 
 ssize_t logfs_read(struct file * filp, char __user * buf, size_t len, loff_t * off) {
 
@@ -23,10 +28,12 @@ ssize_t logfs_read(struct file * filp, char __user * buf, size_t len, loff_t * o
 	//this operation is not synchronized
 	//*off can be changed concurrently
 	//add synchronization if you need it for any reason
-
+	mutex_lock(&logfs_mutex);
 	//check that *off is within boundaries
-	if (*off >= file_size)
+	if (*off >= file_size) {
+		mutex_unlock(&logfs_mutex);
 		return 0;
+	}
 	if (*off + len > file_size)
 		len = file_size - *off;
 
@@ -44,16 +51,16 @@ ssize_t logfs_read(struct file * filp, char __user * buf, size_t len, loff_t * o
 
 	bh = sb_bread(filp->f_path.dentry->d_inode->i_sb, block_to_read);
 	if (!bh) {
+		mutex_unlock(&logfs_mutex);
 		return -EIO;
 	}
 	const size_t ret = copy_to_user(buf, bh->b_data + offset, len);
 	*off += (loff_t)(len - ret);
 	brelse(bh);
-
+	mutex_unlock(&logfs_mutex);
 	return (loff_t)(len - ret);
 
 }
-
 
 struct dentry *logfs_lookup(struct inode *parent_inode, struct dentry *child_dentry, unsigned int flags) {
 	struct super_block *sb = parent_inode->i_sb;
@@ -106,7 +113,6 @@ struct dentry *logfs_lookup(struct inode *parent_inode, struct dentry *child_den
 
 }
 
-
 //this iterate function just returns 3 entries: . and .. and then the name of the unique file of the file system
 int logfs_iterate(struct file *file, struct dir_context* ctx) {
 
@@ -143,6 +149,97 @@ int logfs_iterate(struct file *file, struct dir_context* ctx) {
 
 }
 
+ssize_t logfs_write(struct file * filp, char __user * buf, size_t len, loff_t * off) {
+	//index of the block to be read from device
+	struct buffer_head *bh = NULL;
+	struct inode * the_inode = filp->f_inode;
+	uint64_t file_size = the_inode->i_size;
+
+	// perform locking as stated in the kernel documentation
+	mutex_lock(&logfs_mutex);
+	i_size_write(the_inode, (loff_t)file_size);
+	mutex_unlock(&logfs_mutex);
+
+	*off = i_size_read(the_inode); //writing in append mode ONLY
+
+	printk("%s: write operation called with len %ld - and offset %lld (the current file size is %lld)", MODNAME, len, *off, file_size);
+
+	//determine the block level offset for the operation
+	const loff_t offset = *off % DEFAULT_BLOCK_SIZE;
+	//just read stuff in a single block - residuals will be managed at the application level
+	if (offset + len > DEFAULT_BLOCK_SIZE)
+		len = DEFAULT_BLOCK_SIZE - offset;
+
+	//compute the actual index of the the block to be read from device
+	const long long block_to_read = *off / DEFAULT_BLOCK_SIZE +
+						2; //the value 2 accounts for superblock and file-inode on device
+
+	printk("%s: write operation must access block %lld of the device",MODNAME, block_to_read);
+
+	bh = sb_bread(filp->f_path.dentry->d_inode->i_sb, block_to_read);
+	if (!bh) {
+		return -EIO;
+	}
+	const size_t ret = copy_from_user(bh->b_data + offset, buf, len);
+	sync_dirty_buffer(bh); //write immediately on disk
+	*off += (loff_t)(len - ret);
+	//updating global variable (O_APPEND in open() updates the file length to 0 so we need to keep original lenght)
+	file_size = *off;
+
+	// perform locking as stated in the kernel documentation
+	mutex_lock(&logfs_mutex);
+	i_size_write(the_inode, *off);
+	mutex_unlock(&logfs_mutex);
+	brelse(bh);
+
+	return (loff_t)(len - ret);
+
+}
+
+ssize_t logfs_write_iter(struct kiocb *iocb, struct iov_iter *from) {
+	const struct file *filp = iocb->ki_filp;
+	const char *buf= from->kvec->iov_base;
+	size_t len = from->kvec->iov_len;
+
+	//index of the block to be read from device
+	struct buffer_head *bh = NULL;
+	struct inode * the_inode = filp->f_inode;
+	mutex_lock(&logfs_mutex);
+	i_size_write(the_inode, (loff_t)file_size);
+	mutex_unlock(&logfs_mutex);
+
+	loff_t off = i_size_read(the_inode); //writing in append mode ONLY
+
+	printk("%s: write operation called with len %ld - and offset %lld (the current file size is %lld)",MODNAME, len, off, file_size);
+
+	//determine the block level offset for the operation
+	const loff_t offset = off % DEFAULT_BLOCK_SIZE;
+	//just read stuff in a single block - residuals will be managed at the applicatin level
+	if (offset + len > DEFAULT_BLOCK_SIZE)
+		len = DEFAULT_BLOCK_SIZE - offset;
+
+	//compute the actual index of the the block to be read from device
+	const long long block_to_read =
+		off / DEFAULT_BLOCK_SIZE + 2; //the value 2 accounts for superblock and file-inode on device
+
+	printk("%s: write operation must access block %lld of the device",MODNAME, block_to_read);
+
+	bh = sb_bread(filp->f_path.dentry->d_inode->i_sb, block_to_read);
+	if(!bh){
+		return -EIO;
+	}
+	memcpy(bh->b_data + offset, buf, len);
+	sync_dirty_buffer(bh); //write immediately on disk
+	off += (loff_t)len;
+	//updating global variable (O_APPEND in open() updates the file length to 0 so we need to keep original lenght)
+	file_size = off;
+	i_size_write(the_inode, off);
+	brelse(bh);
+
+	return (ssize_t)len;
+}
+
+
 //look up goes in the inode operations
 const struct inode_operations logfs_inode_ops = {
 	.lookup = logfs_lookup,
@@ -151,8 +248,10 @@ const struct inode_operations logfs_inode_ops = {
 //read goes in the file operations
 const struct file_operations logfs_file_operations = {
 	.owner = THIS_MODULE,
+	.llseek = default_llseek,
 	.read = logfs_read,
-	//.write = onefilefs_write
+	//.write = logfs_write
+	.write_iter = logfs_write_iter,
 };
 
 //add the iterate function in the dir operations

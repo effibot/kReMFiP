@@ -43,7 +43,7 @@ static u8 rm_pwd_hash[RM_PWD_HASH_LEN];
 module_param(module_pwd, charp, 0000);
 MODULE_PARM_DESC(module_pwd, "The password for the reference monitor");
 static char *LOG_FILE = NULL;
-module_param(LOG_FILE, charp, 0000);
+module_param(LOG_FILE, charp, 0660);
 MODULE_PARM_DESC(LOG_FILE, "The path to the log file");
 
 static struct kobj_attribute hash_pwd_attr = __ATTR_RO(pwd_hash);
@@ -335,9 +335,9 @@ int rm_open_pre_handler(struct kprobe *ri, struct pt_regs *regs) {
 		// Send a signal to the current process to kill it
 		struct task_struct *task = current;
 		// if (task) {
+		log_work();
 		send_sig(SIGINT, task, 1);
 		// }
-		INFO("signal sent");
 	}
 
 out_parent:
@@ -408,6 +408,7 @@ int rm_mkdir_pre_handler(struct kprobe *ri, struct pt_regs *regs) {
 		// reject system call
 		// regs->ax = -EPERM;
 		// regs->si = (unsigned long)NULL;
+		log_work();
 		__send_sig_to_current(SIGKILL);
 	}
 
@@ -486,6 +487,7 @@ int rm_rmdir_pre_handler(struct kprobe *ri, struct pt_regs *regs) {
 		// reject system call
 		// regs->ax = -EPERM;
 		// regs->si = (unsigned long)NULL;
+		log_work();
 		__send_sig_to_current(SIGKILL);
 	}
 
@@ -557,6 +559,7 @@ int rm_unlink_pre_handler(struct kprobe *ri, struct pt_regs *regs) {
 		// reject system call
 		// regs->ax = -EPERM;
 		// regs->si = (unsigned long)NULL;
+		log_work();
 		__send_sig_to_current(SIGKILL);
 	}
 out_parent:

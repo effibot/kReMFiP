@@ -21,7 +21,7 @@ MODULE_VERSION("1.0");
 // Filesystem type
 static struct file_system_type logfs_type = {
 	.owner = THIS_MODULE,
-	.name = "loggerfs",
+	.name = "logfs",
 	.mount = logfs_mount,
 	.kill_sb = logfs_destroy_super,
 };
@@ -106,6 +106,8 @@ struct dentry *logfs_mount(struct file_system_type *fs_type, int flags, const ch
 	}
 	return ret;
 }
+// Mutex for operations
+DEFINE_MUTEX(logfs_mutex);
 
 // Init the module
 static int __init loggerfs_init(void) {

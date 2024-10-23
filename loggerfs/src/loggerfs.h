@@ -4,20 +4,20 @@
 
 #ifndef LOGGERFS_H
 #define LOGGERFS_H
-#ifdef __KERNEL__
 // ---------------------------------- Kernel ----------------------------------
 #include <linux/types.h>
 #include <linux/fs.h>
 #include <linux/kernel.h>
 
 #define MODNAME "LOGGERFS"
-
+#ifdef __KERNEL__
 #define INFO(fmt, ...)                                                                \
 printk(KERN_INFO "[%s::%s::%s::%d]: " fmt, MODNAME, __FILE__, __func__, __LINE__, \
 ##__VA_ARGS__);
 #define WARNING(fmt, ...)                                                                \
 printk(KERN_WARNING "[%s::%s::%s::%d]: " fmt, MODNAME, __FILE__, __func__, __LINE__, \
 ##__VA_ARGS__);
+#endif
 
 // File System Constants
 #define MAGIC 0x42424242
@@ -59,16 +59,6 @@ typedef struct __logfs_sb_info {
 } logfs_sb_t;
 
 
-// Superblock operations
-
-// Fill the superblock
-int logfs_fill_super(struct super_block *sb, void *data, int silent);
-// Mount the superblock
-struct dentry *logfs_mount(struct file_system_type *fs_type, int flags, const char *dev_name, void *data);
-// Destroy the superblock
-void logfs_destroy_super(struct super_block *sb);
 
 
-// ---------------------------------- Kernel ----------------------------------
-#endif
 #endif //LOGGERFS_H

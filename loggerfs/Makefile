@@ -21,27 +21,40 @@ CFLAGS += -DDEBUG
 endif
 
 # Targets
-.PHONY: all clean load unload create-fs mount-fs
-#gcc logmakefs.c -o logmakefs
+.PHONY: all app clean load unload create-fs mount-fs
 
 all:
 	$(MAKE) -C $(KDIR) M=$(PWD) modules EXTRA_CFLAGS="$(CFLAGS)" -j
 
+app:
+	gcc $(SRCDIR)/makelogfs.c -o makelogfs
+
 clean:
 	$(MAKE) -C $(KDIR) M=$(PWD) clean
+	rm -f Module.symvers
+	rm -f makelogfs
+	rm -rf ./mount
 
 load:
 	@echo "$(MODNAME) Loading..."
-	$(shell ./load.sh)
+	sudo insmod $(MODNAME).ko
 
 unload:
 	@echo "$(MODNAME) Unloading..."
-	$(shell ./unload.sh)
+	if [ -d "./mount" ]; then sudo umount ./mount; fi
+	sudo rmmod $(MODNAME)
+
 
 create-fs:
 	dd bs=4096 count=100 if=/dev/zero of=image
-	./logmakefs image
-	mkdir mount
+	./makelogfs image
+	@if [ ! -d "./mount" ]; then mkdir ./mount; fi
+
 
 mount-fs:
-	mount -o loop -t singlefilefs image ./mount/
+	sudo mount -o loop -t logfs image ./mount/
+
+remove:
+	@if lsmod | grep -q $(MODNAME); then sudo umount ./mount; fi
+	@if [ -d "./mount" ]; then rm -rf ./mount; fi
+	@if [ -f "image" ]; then rm -f image; fi
