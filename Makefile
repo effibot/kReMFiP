@@ -7,13 +7,14 @@
 # Module Name
 MODNAME := kremfip
 # Module Version
-VERSION := 0.1
+VERSION := 1.0
 # Kernel Module Directory
 KDIR ?= /lib/modules/$(shell uname -r)/build
 # Source Directory
 SRCDIR := src
 # Sub-module Directory
 SCTHDIR := scth
+LOGFSDIR := loggerfs
 # Include Directory
 INCLUDEDIR := $(SRCDIR)/include
 # Utilities Directory
@@ -39,7 +40,7 @@ CFLAGS := -std=gnu11 -Wno-comment -Wno-declaration-after-statement -Wno-implicit
 
 # Module configuration
 obj-m += $(MODNAME).o
-obj-y += $(SCTHDIR)/
+obj-y += $(SCTHDIR)/ $(LOGFSDIR)/
 $(MODNAME)-y += $(SRC) $(INCLUDE) $(UTILS) $(LIBS)
 KBUILD_EXTRA_SYMBOLS += $(PWD)/$(SCTHDIR)/Module.symvers
 
@@ -56,6 +57,7 @@ all:
 clean:
 	$(MAKE) -C $(KDIR) M=$(PWD) clean
 	@if [ -f $(USERDIR)/user_test ]; then rm $(USERDIR)/user_test; fi
+	$(MAKE) -C $(LOGFSDIR) remove
 
 load:
 	@echo "$(MODNAME) Loading..."

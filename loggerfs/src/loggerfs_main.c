@@ -1,7 +1,3 @@
-//
-// Created by effi on 21/10/24.
-//
-
 #include <linux/init.h>
 #include <linux/module.h>
 #include <linux/kernel.h>
@@ -11,7 +7,9 @@
 
 
 #include "loggerfs.h"
-
+#include "operations.h"
+#include <linux/buffer_head.h>
+#include <linux/cred.h>
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Andrea Efficace");
@@ -20,32 +18,41 @@ MODULE_INFO(name, MODNAME);
 MODULE_INFO(OS, "Linux");
 MODULE_VERSION("1.0");
 
+// Filesystem type
+static struct file_system_type logfs_type = {
+	.owner = THIS_MODULE,
+	.name = "logfs",
+	.mount = logfs_mount,
+	.kill_sb = logfs_destroy_super,
+};
+
+static struct super_operations logfs_super_ops = {
+};
+
+
+static struct dentry_operations logfs_dentry_ops = {
+};
+
 
 // Destroy the Superblock
-static void loggerfs_destroy_super(struct super_block *sb) {
+void logfs_destroy_super(struct super_block *sb) {
 	kill_block_super(sb);
 	INFO("LoggerFS superblock destroyed\n");
-	return;
 }
 
 // Fill the superblock
-static int loggerfs_fill_super(struct super_block *sb, void *data, int silent) {
-	struct inode *root_inode;
-	struct buffer_head *bh;
-	struct onefilefs_sb_info *sb_disk;
+int logfs_fill_super(struct super_block *sb, void *data, int silent) {
 	struct timespec64 curr_time;
-	uint64_t magic;
-
 
 	//Unique identifier of the filesystem
 	sb->s_magic = MAGIC;
 
-	bh = sb_bread(sb, SB_BLOCK_NUMBER);
-	if(!sb){
+	struct buffer_head *bh = sb_bread(sb, SB_BLOCK_NUMBER);
+	if (!sb) {
 		return -EIO;
 	}
-	sb_disk = (struct onefilefs_sb_info *)bh->b_data;
-	magic = sb_disk->magic;
+	const logfs_sb_t *sb_disk = (logfs_sb_t *)bh->b_data;
+	const uint64_t magic = sb_disk->magic;
 	brelse(bh);
 
 	//check on the expected magic number
@@ -54,18 +61,19 @@ static int loggerfs_fill_super(struct super_block *sb, void *data, int silent) {
 	}
 
 	sb->s_fs_info = NULL; //FS specific data (the magic number) already reported into the generic superblock
-	sb->s_op = &singlefilefs_super_ops;//set our own operations
+	sb->s_op = &logfs_super_ops;//set our own operations
 
 
-	root_inode = iget_locked(sb, SINGLEFILEFS_ROOT_INODE_NUMBER);//get a root inode from cache
+	struct inode *root_inode =
+		iget_locked(sb, LOGFS_ROOT_INODE_NUMBER); //get a root inode from cache
 	if (!root_inode){
 		return -ENOMEM;
 	}
 
-	inode_init_owner(current->cred->user_ns,root_inode, NULL, S_IFDIR);//set the root user as owner of the FS root
+    inode_init_owner(root_inode, NULL, S_IFDIR);//set the root user as owner of the FS root
 	root_inode->i_sb = sb;
-	root_inode->i_op = &onefilefs_inode_ops;//set our inode operations
-	root_inode->i_fop = &onefilefs_dir_operations;//set our file operations
+	root_inode->i_op = &logfs_inode_ops;//set our inode operations
+	root_inode->i_fop = &logfs_dir_operations;//set our file operations
 	//update access permission
 	root_inode->i_mode = S_IFDIR | S_IRUSR | S_IRGRP | S_IROTH | S_IWUSR | S_IWGRP | S_IXUSR | S_IXGRP | S_IXOTH;
 
@@ -80,7 +88,7 @@ static int loggerfs_fill_super(struct super_block *sb, void *data, int silent) {
 	if (!sb->s_root)
 		return -ENOMEM;
 
-	sb->s_root->d_op = &singlefilefs_dentry_ops;//set our dentry operations
+	sb->s_root->d_op = &logfs_dentry_ops;//set our dentry operations
 
 	//unlock the inode to make it usable
 	unlock_new_inode(root_inode);
@@ -89,9 +97,8 @@ static int loggerfs_fill_super(struct super_block *sb, void *data, int silent) {
 }
 
 // Mount the filesystem
-static struct dentry *loggerfs_mount(struct file_system_type *fs_type, int flags, const char *dev_name, void *data) {
-	struct dentry *ret;
-	ret = mount_bdev(fs_type, flags, dev_name, data, loggerfs_fill_super);
+struct dentry *logfs_mount(struct file_system_type *fs_type, int flags, const char *dev_name, void *data) {
+	struct dentry *ret = mount_bdev(fs_type, flags, dev_name, data, logfs_fill_super);
 	if (IS_ERR(ret)) {
 		WARNING("LoggerFS mounting failed\n");
 	} else {
@@ -99,19 +106,12 @@ static struct dentry *loggerfs_mount(struct file_system_type *fs_type, int flags
 	}
 	return ret;
 }
-
-// Filesystem type
-static struct file_system_type loggerfs_type = {
-	.owner = THIS_MODULE,
-	.name = "loggerfs",
-	.mount = loggerfs_mount,
-	.kill_sb = loggerfs_destroy_super,
-};
+// Mutex for operations
+DEFINE_MUTEX(logfs_mutex);
 
 // Init the module
 static int __init loggerfs_init(void) {
-	int ret;
-	ret = register_filesystem(&loggerfs_type);
+	const int ret = register_filesystem(&logfs_type);
 	if (ret == 0) {
 		INFO("LoggerFS module loaded\n");
 	} else {
@@ -122,8 +122,7 @@ static int __init loggerfs_init(void) {
 
 // Exit the module
 static void __exit loggerfs_exit(void) {
-	int ret;
-	ret = unregister_filesystem(&loggerfs_type);
+	const int ret = unregister_filesystem(&logfs_type);
 	if (ret == 0) {
 		INFO("LoggerFS module unloaded\n");
 	} else {

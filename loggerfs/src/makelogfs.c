@@ -7,7 +7,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "singlefilefs.h"
+#include "loggerfs.h"
 
 /*
 	This makefs will write the following information onto the disk
@@ -20,15 +20,15 @@ int main(int argc, char *argv[])
 {
 	int fd, nbytes;
 	ssize_t ret;
-	struct onefilefs_sb_info sb;
-	struct onefilefs_inode root_inode;
-	struct onefilefs_inode file_inode;
-	struct onefilefs_dir_record record;
+	logfs_sb_t sb;
+	lognode_t root_inode;
+	lognode_t file_inode;
+	logdir_t record;
 	char *block_padding;
-	char *file_body = "Wathever content you would like.\n";//this is the default content of the unique file 
+	char *file_body = "ATTEMPS TO WRITE OPEN PROTECTED FILE\n";//this is the default content of the unique file 
 
 	if (argc != 2) {
-		printf("Usage: mkfs-singlefilefs <device>\n");
+		printf("Usage: mkfs-logfs <device>\n");
 		return -1;
 	}
 
@@ -55,7 +55,7 @@ int main(int argc, char *argv[])
 
 	// write file inode
 	file_inode.mode = S_IFREG;
-	file_inode.inode_no = SINGLEFILEFS_FILE_INODE_NUMBER;
+	file_inode.inode_no = LOGFS_FILE_INODE_NUMBER;
 	file_inode.file_size = strlen(file_body);
 	printf("File size is %ld\n",file_inode.file_size);
 	fflush(stdout);

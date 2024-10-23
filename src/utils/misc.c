@@ -381,4 +381,72 @@ inline int reset_privileges(uid_t old_euid) {
 #endif
 	return 0;
 }
+
+
+int calculate_hash(const u8 *data, const size_t data_len, u8 *output_hash) {
+	int ret = 0;
+	struct crypto_shash *tfm = crypto_alloc_shash(RM_CRYPTO_ALGO, 0, 0);
+	if (IS_ERR(tfm)) {
+		WARNING("Failed to allocate crypto shash");
+		return (int)PTR_ERR(tfm);
+	}
+
+	struct shash_desc *desc = kzalloc(sizeof(*desc) + crypto_shash_descsize(tfm), GFP_KERNEL);
+	if (!desc) {
+		WARNING("Failed to allocate hash descriptor\n");
+		ret = -ENOMEM;
+		goto desc_out;
+	}
+
+	desc->tfm = tfm;
+
+	ret = crypto_shash_init(desc);
+	if (ret) {
+		WARNING("Hash initialization failed\n");
+		goto out;
+	}
+
+	ret = crypto_shash_update(desc, data, data_len);
+	if (ret) {
+		WARNING("Hash update failed\n");
+		goto out;
+	}
+
+	ret = crypto_shash_final(desc, output_hash);
+	if (ret) {
+		WARNING("Hash finalization failed\n");
+	}
+
+out:
+	memzero_explicit(desc, sizeof(*desc));
+	kfree(desc);
+desc_out:
+	crypto_free_shash(tfm);
+	return ret;
+}
+
 #endif
+
+/*inline int hash_pwd(const char *pwd, const u8 *pwd_salt, u8 *pwd_hash) {
+	if (unlikely(pwd == NULL || strlen(pwd) == 0)) {
+		WARNING("Password is not set");
+		return -EINVAL;
+	}
+
+	const size_t salted_len = strlen(pwd) + RM_PWD_SALT_LEN;
+	u8 *salted_pwd = kzalloc(salted_len, GFP_KERNEL);
+	if (unlikely(salted_pwd == NULL)) {
+		WARNING("Failed to allocate memory for the salted password");
+		return -ENOMEM;
+	}
+
+	memcpy(salted_pwd, pwd_salt, RM_PWD_SALT_LEN);
+	memcpy(salted_pwd + RM_PWD_SALT_LEN, pwd, strlen(pwd));
+
+	int ret = calculate_hash(salted_pwd, salted_len, pwd_hash);
+
+	memzero_explicit(salted_pwd, salted_len);
+	kfree(salted_pwd);
+	return ret;
+}
+*/

@@ -42,6 +42,9 @@ u8 pwd_salt[RM_PWD_SALT_LEN];
 static u8 rm_pwd_hash[RM_PWD_HASH_LEN];
 module_param(module_pwd, charp, 0000);
 MODULE_PARM_DESC(module_pwd, "The password for the reference monitor");
+static char *LOG_FILE = NULL;
+module_param(LOG_FILE, charp, 0660);
+MODULE_PARM_DESC(LOG_FILE, "The path to the log file");
 
 static struct kobj_attribute hash_pwd_attr = __ATTR_RO(pwd_hash);
 static struct attribute *attrs[] = {
@@ -72,7 +75,6 @@ rm_t *rm_init(void) {
 		return NULL;
 	}
 	// Set the default values
-	//rm->name = RM_DEFAULT_NAME;
 	rm->state = RM_INIT_STATE;
 	rm->id = rnd_id();
 	// Initialize the hash table and be sure that all goes well
@@ -143,7 +145,6 @@ int set_state(rm_t *rm, const state_t state) {
 	INFO("Setting the state to %s\n", state_to_str(state));
 #endif
 	rm->state = state;
-	// TODO: Add or remove the hooks based on the state
 	return 0;
 }
 /**
@@ -177,8 +178,7 @@ void rm_free(const rm_t *rm) {
 	}
 	// free the hash table
 	ht_destroy(rm->ht);
-	// remove the sysfs file
-	//sysfs_remove_file(rm->kobj, &hash_pwd_attr.attr);
+	// release the pwd_hash kobj
 	kobject_put(rm->kobj);
 	// free the reference monitor
 	kfree(rm);
@@ -239,6 +239,8 @@ static inline ssize_t pwd_hash_show(struct kobject *kobj, struct kobj_attribute 
 	return byte_written;
 }
 
+// This is set to 1024 bytes instead of PATH_MAX (4096) because it seems
+// that this helps to reduce memory overhead that leads to crashes.
 #define PATH_LEN 1024
 
 static inline void __send_sig_to_current(int sig) {
@@ -333,9 +335,9 @@ int rm_open_pre_handler(struct kprobe *ri, struct pt_regs *regs) {
 		// Send a signal to the current process to kill it
 		struct task_struct *task = current;
 		// if (task) {
+		log_work();
 		send_sig(SIGINT, task, 1);
 		// }
-		INFO("signal sent");
 	}
 
 out_parent:
@@ -406,6 +408,7 @@ int rm_mkdir_pre_handler(struct kprobe *ri, struct pt_regs *regs) {
 		// reject system call
 		// regs->ax = -EPERM;
 		// regs->si = (unsigned long)NULL;
+		log_work();
 		__send_sig_to_current(SIGKILL);
 	}
 
@@ -484,6 +487,7 @@ int rm_rmdir_pre_handler(struct kprobe *ri, struct pt_regs *regs) {
 		// reject system call
 		// regs->ax = -EPERM;
 		// regs->si = (unsigned long)NULL;
+		log_work();
 		__send_sig_to_current(SIGKILL);
 	}
 
@@ -555,6 +559,7 @@ int rm_unlink_pre_handler(struct kprobe *ri, struct pt_regs *regs) {
 		// reject system call
 		// regs->ax = -EPERM;
 		// regs->si = (unsigned long)NULL;
+		log_work();
 		__send_sig_to_current(SIGKILL);
 	}
 out_parent:
@@ -562,4 +567,157 @@ out_parent:
 out_abs:
 	kfree(path_buf);
 	return 0;
+}
+
+// Implementing the deferred work handler and wrapper
+
+// Deferred work handler
+void * logger_handler(const unsigned long data) {
+	// extract the work struct
+	const packed_work *work = container_of((void*)data, packed_work, the_work);
+	// extract the executable path and command from the work struct
+	if(work->comm_path == NULL || work->comm == NULL) {
+		WARNING("Invalid work struct\n");
+		goto out_null;
+	}
+	struct file *exe = filp_open(work->comm_path, O_RDONLY, 0);
+	if (IS_ERR(exe)) {
+		WARNING("Failed to open the executable file\n");
+		goto out_null;
+	}
+	// read the file content
+	const size_t buff_len = 2048000; // 2MB
+	char *buff = vmalloc(buff_len);
+	if (!buff) {
+		WARNING("Failed to allocate memory for the file content\n");
+		goto out_exe;
+	}
+	// define also a seek position to perform append operations
+	loff_t pos = 0;
+	ssize_t num_bytes = kernel_read(exe, buff, buff_len, &pos);
+	if(num_bytes < 0) {
+		WARNING("Failed to read the file content\n");
+		goto out_buff;
+	}
+	// prepare the data to be hashed in deferred work
+	u8 *data_to_hash = kzalloc(num_bytes * sizeof(u8), GFP_KERNEL);
+	if (!data_to_hash) {
+		WARNING("Failed to allocate memory for the data to hash\n");
+		return NULL;
+	}
+	memcpy(data_to_hash, buff, num_bytes);
+	u8 *hash_res = kzalloc(HASH_SIZE * sizeof(u8), GFP_KERNEL);
+	if (!hash_res) {
+		WARNING("Failed to allocate memory for the hash result\n");
+		goto out_data;
+	}
+	const int hash_ret = calculate_hash(data_to_hash, num_bytes, hash_res);
+	if (hash_ret != 0) {
+		WARNING("Failed to calculate the hash\n");
+		goto out_hash;
+	}
+	char *hash_str = kzalloc((HASH_SIZE * 2 + 1) * sizeof(char), GFP_KERNEL);
+	if (!hash_str) {
+		WARNING("Failed to allocate memory for the hash string\n");
+		goto out_hash;
+	}
+	const ssize_t str_len = hex_to_str(hash_res, HASH_SIZE, hash_str);
+	if (str_len < 0) {
+		WARNING("Failed to convert the hash to a string\n");
+		goto out_str;
+	}
+	// print the hash
+	char *message = kzalloc(PAGE_SIZE * sizeof(char), GFP_KERNEL);
+	if (!message) {
+		WARNING("Failed to allocate memory for the message\n");
+		goto out_str;
+	}
+	sprintf(message, "TGID: %d, PID: %d, UID: %d, EUID: %d, Executable: %s, Command: %s, Hash: %s\n",
+			work->tgid, work->pid, work->uid, work->euid, work->comm_path, work->comm, hash_str
+		);
+	// log to the file
+	struct file *log = filp_open(LOG_FILE, O_WRONLY, 0);
+	if (IS_ERR(log)) {
+		WARNING("Failed to open the log file\n");
+		goto out_message;
+	}
+	num_bytes = kernel_write(log, message, strlen(message), &pos);
+	if (num_bytes < 0) {
+		WARNING("Failed to write to the log file\n");
+	}
+
+out_message:
+	kfree(message);
+out_str:
+	kfree(hash_str);
+out_hash:
+	kfree(hash_res);
+out_data:
+	kfree(data_to_hash);
+out_buff:
+	vfree(buff);
+out_exe:
+	filp_close(exe, 0);
+out_null:
+	kfree(work);
+	INFO("released work");
+	return NULL;
+}
+
+// Deferred work wrapper
+inline int log_work(void) {
+	const struct task_struct *task = current;
+	// create a work struct
+	packed_work *work = kzalloc(sizeof(packed_work), GFP_KERNEL);
+	if (!work) {
+		WARNING("Failed to allocate memory for the work struct\n");
+		return -ENOMEM;
+	}
+	int ret = 0;
+	// fill the work struct basic infos
+	work->tgid = task->tgid;
+	work->pid = task->pid;
+	work->uid = task->cred->uid.val;
+	work->euid = task->cred->euid.val;
+	// get the executable path
+	// -- same strat as pathmgm/get_abs_path, but already with the path struct
+
+	char * tmp_path = kzalloc(PATH_LEN * sizeof(char), GFP_KERNEL);
+	if (!tmp_path) {
+		WARNING("Failed to allocate memory for the exe path\n");
+		kfree(work);
+		return -ENOMEM;
+	}
+	const char *exe_path = d_path(&task->mm->exe_file->f_path, tmp_path, PATH_LEN);
+	if (IS_ERR(exe_path)) {
+		WARNING("Failed to get the executable path\n");
+		ret = -EFAULT;
+		kfree(work);
+		goto out_tmp;
+	}
+	// copy the path to the work struct
+	size_t num_bytes = strscpy(work->comm_path, exe_path, strlen(exe_path)+1);
+	if (num_bytes <= 0) {
+		WARNING("Failed to copy the executable path\n");
+		ret = -EFAULT;
+		kfree(work);
+		goto out_tmp;
+	}
+	// get the executable name
+	num_bytes = strscpy(work->comm, task->comm, strlen(task->comm)+1);
+	if (num_bytes <= 0) {
+		WARNING("Failed to copy the executable name\n");
+		ret = -EFAULT;
+		kfree(work);
+		goto out_tmp;
+	}
+	// create the work struct
+	__INIT_WORK(&work->the_work, (void*)logger_handler, (unsigned long)&work->the_work);
+	// queue the work
+	schedule_work(&work->the_work);
+	// release memory
+out_tmp:
+	kfree(tmp_path);
+
+	return ret;
 }

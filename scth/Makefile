@@ -31,7 +31,7 @@ all:
 
 clean:
 	$(MAKE) -C $(KDIR) M=$(PWD) clean
-
+	rm -f Module.symvers
 load:
 	sudo insmod $(MODNAME).ko
 unload:
