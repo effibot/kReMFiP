@@ -31,8 +31,8 @@ app:
 
 clean:
 	$(MAKE) -C $(KDIR) M=$(PWD) clean
-	rm -f Module.symvers
-	rm -f makelogfs
+	rm -f ./Module.symvers
+	rm -f ./makelogfs
 	rm -rf ./mount
 
 load:
@@ -58,3 +58,4 @@ remove:
 	@if lsmod | grep -q $(MODNAME); then sudo umount ./mount; fi
 	@if [ -d "./mount" ]; then rm -rf ./mount; fi
 	@if [ -f "image" ]; then rm -f image; fi
+	@if [ -f "makelogfs" ]; then rm -f makelogfs; fi

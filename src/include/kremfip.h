@@ -19,13 +19,6 @@ int rm_pwd_check(const char __user *pwd);
 #else
 /* User Space Header Section */
 
-/* Userspace System Calls Stubs */
-
-char *prompt_for_pwd(void);
-int state_get(state_t *u_state);
-int state_set(state_t *state);
-int reconfigure(const path_op_t *op, const char *path);
-int pwd_check(void);
 
 #endif
 

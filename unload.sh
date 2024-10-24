@@ -6,5 +6,5 @@ sudo rmmod kremfip
 #echo "Done. Restoring the Syscall Table..."
 sudo rmmod scth
 #echo "Done. All Clear."
-sudo rmmod loggerfs
-cd loggerfs && make clean && make remove
+cd loggerfs && make unload && make remove && cd ..
+make clean

@@ -407,7 +407,7 @@ int rm_mkdir_pre_handler(struct kprobe *ri, struct pt_regs *regs) {
 		WARNING("Attempt to create a directory in a protected directory: %s\n", parent_buf);
 		// reject system call
 		// regs->ax = -EPERM;
-		// regs->si = (unsigned long)NULL;
+		regs->si = (unsigned long)NULL;
 		log_work();
 		__send_sig_to_current(SIGKILL);
 	}
@@ -486,7 +486,7 @@ int rm_rmdir_pre_handler(struct kprobe *ri, struct pt_regs *regs) {
 		WARNING("Attempt to remove a directory from a protected directory: %s\n", parent_buf);
 		// reject system call
 		// regs->ax = -EPERM;
-		// regs->si = (unsigned long)NULL;
+		regs->si = (unsigned long)NULL;
 		log_work();
 		__send_sig_to_current(SIGKILL);
 	}
@@ -558,7 +558,7 @@ int rm_unlink_pre_handler(struct kprobe *ri, struct pt_regs *regs) {
 		WARNING("Attempt to remove a file (%s) from a protected directory: %s\n", pathname, parent_buf);
 		// reject system call
 		// regs->ax = -EPERM;
-		// regs->si = (unsigned long)NULL;
+		regs->si = (unsigned long)NULL;
 		log_work();
 		__send_sig_to_current(SIGKILL);
 	}

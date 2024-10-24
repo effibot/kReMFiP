@@ -90,15 +90,15 @@ __SYSCALL_DEFINEx(1, _state_get, state_t __user *, u_state) {
 #ifdef DEBUG
 	INFO("invoking __x64_sys_state_get\n");
 #endif
-	// if (!try_module_get(THIS_MODULE))
-	// 	return -ENOSYS;
+	if (!try_module_get(THIS_MODULE))
+		return -ENOSYS;
 	const int ret = rm_state_get(u_state);
 	if (ret != 0) {
 		WARNING("failed to copy to user\n");
-		// module_put(THIS_MODULE);
+		module_put(THIS_MODULE);
 		return -EFAULT;
 	}
-	// module_put(THIS_MODULE);
+	module_put(THIS_MODULE);
 	return ret;
 }
 
@@ -106,13 +106,13 @@ __SYSCALL_DEFINEx(1, _state_set, const state_t __user *, state) {
 #ifdef DEBUG
 	INFO("Invoking __x64_sys_state_set\n");
 #endif
-	// if (!try_module_get(THIS_MODULE))
-	// 	return -ENOSYS;
+	if (!try_module_get(THIS_MODULE))
+		return -ENOSYS;
 	// password is checked in user space, if we came here, we can trust the user
 	const uid_t old_euid = elevate_privileges();
 	if (get_euid() != 0) { // if this is not zero we have an error
 		WARNING("Failed to elevate the privileges\n");
-		// module_put(THIS_MODULE);
+		module_put(THIS_MODULE);
 		return old_euid;
 	}
 	// we are root now, change the state of the monitor.
@@ -125,7 +125,7 @@ __SYSCALL_DEFINEx(1, _state_set, const state_t __user *, state) {
 	const int priv_err = reset_privileges(old_euid);
 	if (priv_err != 0) {
 		WARNING("Failed to reset the privileges\n");
-		// module_put(THIS_MODULE);
+		module_put(THIS_MODULE);
 		return priv_err;
 	}
 	// if the state is REC_ON or ON, we have to enable the kprobes
@@ -135,14 +135,16 @@ __SYSCALL_DEFINEx(1, _state_set, const state_t __user *, state) {
 		enable_kprobe(&kp_unlink);
 		enable_kprobe(&kp_mkdir);
 		enable_kprobe(&kp_rmdir);
+		INFO("Enabled Kprobes\n");
 	} else {
 		// disable the kprobes
 		disable_kprobe(&kp_open);
 		disable_kprobe(&kp_unlink);
 		disable_kprobe(&kp_mkdir);
 		disable_kprobe(&kp_rmdir);
+		INFO("Disabled Kprobes");
 	}
-	// module_put(THIS_MODULE);
+	module_put(THIS_MODULE);
 	return ret;
 }
 
@@ -150,12 +152,12 @@ __SYSCALL_DEFINEx(2, _reconfigure, const path_op_t __user *, op, const char __us
 #ifdef DEBUG
 	INFO("Invoking __x64_sys_reconfigure\n");
 #endif
-	// if (!try_module_get(THIS_MODULE))
-	// 	return -ENOSYS;
+	if (!try_module_get(THIS_MODULE))
+		return -ENOSYS;
 	const uid_t old_euid = elevate_privileges();
 	if (get_euid() != 0) { // if this is not zero we have an error
 		WARNING("Failed to elevate the privileges\n");
-		// module_put(THIS_MODULE);
+		module_put(THIS_MODULE);
 		return old_euid;
 	}
 	const int ret = rm_reconfigure(op, path);
@@ -166,10 +168,10 @@ __SYSCALL_DEFINEx(2, _reconfigure, const path_op_t __user *, op, const char __us
 	const int priv_err = reset_privileges(old_euid);
 	if (priv_err != 0) {
 		WARNING("Failed to reset the privileges\n");
-		// module_put(THIS_MODULE);
+		module_put(THIS_MODULE);
 		return priv_err;
 	}
-	// module_put(THIS_MODULE);
+	module_put(THIS_MODULE);
 	return ret;
 }
 
@@ -177,15 +179,15 @@ __SYSCALL_DEFINEx(1, _pwd_check, const char __user *, pwd) {
 #ifdef DEBUG
 	INFO("Invoking __x64_sys_pwd_check\n");
 #endif
-	// if (!try_module_get(THIS_MODULE))
-	// 	return -ENOSYS;
+	if (!try_module_get(THIS_MODULE))
+		return -ENOSYS;
 	const int ret = rm_pwd_check(pwd);
 	if (ret != 0) {
 		WARNING("failed to copy to user with error: %d\n", ret);
-		// module_put(THIS_MODULE);
+		module_put(THIS_MODULE);
 		return -EFAULT;
 	}
-	// module_put(THIS_MODULE);
+	module_put(THIS_MODULE);
 	return ret;
 }
 

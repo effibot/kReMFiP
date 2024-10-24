@@ -1,5 +1,4 @@
-#ifndef __KERNEL__
-#include "kremfip.h"
+#include "kremfip_lib.h"
 #include <errno.h>
 #include <stdio.h>
 #include <string.h>
@@ -7,7 +6,6 @@
 #include <sys/syscall.h>
 #include <sys/types.h>
 #include <unistd.h>
-#include "../../scth/headers/scth_lib.h"
 
 enum __NR_sys_idx {
 	__state_get = 0,
@@ -68,7 +66,7 @@ inline int state_set(state_t *state) {
 		return -1;
 	// all clear, we can set the state
 	int __NR_state_set = get_sys_idx(SCTH_HSYSNIS, __state_set);
-	printf("%d\n", __NR_state_set);
+	// printf("%d\n", __NR_state_set);
 	return syscall(__NR_state_set, state);
 }
 
@@ -82,8 +80,7 @@ inline int reconfigure(const path_op_t *op, const char *path) {
 	errno = 0;
 	// firstly we check the state of the reference monitor. If is ON or OFF it can't be reconfigured
 	state_t state;
-	int ret;
-	ret = state_get(&state);
+	const int ret = state_get(&state);
 	if (ret < 0) {
 		printf("Error: %s\n", strerror(errno));
 		return -1;
@@ -106,13 +103,11 @@ inline int reconfigure(const path_op_t *op, const char *path) {
  */
 inline int pwd_check(void) {
     errno = 0;
-    char *pwd;
-    pwd = prompt_for_pwd();
+	char *pwd = prompt_for_pwd();
     if (pwd == NULL){
         return -1;
 	}
 	int __NR_pwd_check = get_sys_idx(SCTH_HSYSNIS, __pwd_check);
-	printf("%d\n", __NR_pwd_check);
+	// printf("%d\n", __NR_pwd_check);
     return syscall(__NR_pwd_check, pwd);
 }
-#endif

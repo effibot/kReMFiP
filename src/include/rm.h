@@ -10,13 +10,9 @@
 #include <linux/spinlock.h>
 
 typedef struct _rm_t {
-	//const char *name; // Name of the reference monitor
 	state_t state; // State of the reference monitor
 	ht_t *ht; // Hash table for the reference monitor
 	unsigned int id; // ID of the reference monitor
-	//TODO: file system
-	//struct workqueue_struct *wq; // Workqueue for the reference monitor
-	//struct work_struct work; // Work structure for the reference monitor
 	struct kobject *kobj; // Kobject for the reference monitor
 	spinlock_t lock; // Spinlock for the reference monitor
 } rm_t;

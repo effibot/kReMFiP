@@ -42,6 +42,16 @@ inline state_t str_to_state(const char *state_str) {
 	return -1;
 }
 
+inline path_op_t str_to_op(const char *op_str) {
+	if (strcmp(op_str, "PROTECT_PATH") == 0) {
+		return PROTECT_PATH;
+	}
+	if (strcmp(op_str, "UNPROTECT_PATH") == 0) {
+		return UNPROTECT_PATH;
+	}
+	return -1;
+}
+
 /**
  * @brief Check if the state is valid
  * Perform a check on the state value to see if it's inside the range [0,3] = {OFF, ON, REC_OFF, REC_ON}

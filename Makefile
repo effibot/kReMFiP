@@ -49,23 +49,14 @@ CFLAGS += -DDEBUG
 endif
 
 # Targets
-.PHONY: all clean load unload user
+.PHONY: all clean
 
 all:
 	$(MAKE) -C $(KDIR) M=$(PWD) modules EXTRA_CFLAGS="$(CFLAGS)" -j
+	$(MAKE) -C $(LOGFSDIR) app
+	$(MAKE) -C $(USERDIR) cli
 
 clean:
 	$(MAKE) -C $(KDIR) M=$(PWD) clean
-	@if [ -f $(USERDIR)/user_test ]; then rm $(USERDIR)/user_test; fi
 	$(MAKE) -C $(LOGFSDIR) remove
-
-load:
-	@echo "$(MODNAME) Loading..."
-	$(shell ./load.sh)
-
-unload:
-	@echo "$(MODNAME) Removing..."
-	$(shell ./unload.sh)
-
-user:
-	@cd $(USERDIR) && $(MAKE) all
+	$(MAKE) -C $(USERDIR) clean

@@ -8,6 +8,7 @@
 // Function prototypes - no kernel specific code here
 char *state_to_str(state_t state);
 state_t str_to_state(const char *state_str);
+path_op_t str_to_op(const char *op_str);
 int is_state_valid(state_t state);
 int is_op_valid(path_op_t op);
 

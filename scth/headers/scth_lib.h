@@ -19,6 +19,7 @@ void scth_unhack(int to_restore);
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <errno.h>
 #define PAGE_SIZE 4096
 
 #define SCTH_SYSNIS "/sys/module/scth/sysnis"
